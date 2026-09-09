@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 from .env import Config
-from .proc import mask_command
+from .proc import mask_command, warn
 
 ERROR_PATTERNS = [
     re.compile(r"\bERROR\b"),
@@ -86,17 +86,18 @@ class EdtCli:
         if output:
             print(output, flush=True)
 
-        problems = self._scan_problems(output)
-        log_problems = self._scan_workspace_log(ws)
-        problems.extend(log_problems)
+        for entry in self._scan_workspace_log(ws):
+            warn(f"EDT workspace log entry: {entry}")
+
+        console_problems = self._scan_problems(output)
 
         if result.returncode != 0:
             raise EdtCliError(
-                f"1cedtcli exited with code {result.returncode}: {'; '.join(problems[:3])}"
+                f"1cedtcli exited with code {result.returncode}: {'; '.join(console_problems[:3])}"
             )
-        if problems:
+        if console_problems:
             raise EdtCliError(
-                f"1cedtcli reported errors while exit code is 0: {'; '.join(problems[:3])}"
+                f"1cedtcli reported errors while exit code is 0: {'; '.join(console_problems[:3])}"
             )
 
     def _scan_problems(self, output: str) -> list[str]:

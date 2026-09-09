@@ -49,6 +49,12 @@
 `ConfigDumpInfo.xml` — ровно как в `1CFilesConverter`. Управление:
 `--sync auto|force|off`.
 
+EDT workspace создаётся заново на каждый запуск — как в upstream
+(`1CFilesConverter`/`kafka-tools`): повторный import в «тёплый» workspace
+отклоняется EDT («проект уже существует»). Workspace живёт в `cache/`
+(монтируемый volume): при падении сохраняется для диагностики, при успехе
+удаляется.
+
 ## Быстрый старт
 
 ```powershell

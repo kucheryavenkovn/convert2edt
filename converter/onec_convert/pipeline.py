@@ -1,6 +1,6 @@
-import hashlib
 import shutil
 from pathlib import Path
+from uuid import uuid4
 
 from .detect import CF, EDT, FILE_IB, SERVER_IB, Source, detect_source
 from .edtcli import EdtCli
@@ -29,6 +29,7 @@ class Pipeline:
         self.ibcmd = Ibcmd(self.cfg)
         self.edt = EdtCli(self.cfg)
         self._temp: TempArea | None = None
+        self._workspaces: list[Path] = []
 
     def temp(self, name: str) -> TempArea:
         area = TempArea(self.cfg.temp_root, name)
@@ -36,25 +37,25 @@ class Pipeline:
         self._temp = area
         return area
 
-    def finish_temp(self, failed: bool = False) -> None:
-        if self._temp is None:
-            return
-        if failed and not self.cfg.keep_temp:
-            info(f"temporary files kept for inspection: {self._temp.root}")
-            self._temp = None
-            return
-        if self.cfg.keep_temp:
-            info(f"temporary files kept (CONVERT_KEEP_TEMP=1): {self._temp.root}")
-            self._temp = None
-            return
-        self._temp.cleanup()
-        self._temp = None
-
     def workspace(self, project: Path) -> Path:
-        key = hashlib.sha1(str(project.resolve()).encode("utf-8")).hexdigest()[:12]
-        ws = self.cfg.edt_ws_root / f"ws-{key}"
+        ws = self.cfg.edt_ws_root / f"ws-{uuid4().hex[:12]}"
         ws.mkdir(parents=True, exist_ok=True)
+        self._workspaces.append(ws)
         return ws
+
+    def finish_temp(self, failed: bool = False) -> None:
+        if self._temp is not None:
+            if failed or self.cfg.keep_temp:
+                info(f"temporary files kept for inspection: {self._temp.root}")
+            else:
+                self._temp.cleanup()
+            self._temp = None
+        for ws in self._workspaces:
+            if failed or self.cfg.keep_temp:
+                info(f"EDT workspace kept for inspection: {ws}")
+            else:
+                shutil.rmtree(ws, ignore_errors=True)
+        self._workspaces = []
 
     def clean_dst(self, path: Path) -> None:
         if self.cfg.clean_dst and path.exists():
