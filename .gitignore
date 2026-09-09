@@ -1,5 +1,6 @@
 # Закрытые дистрибутивы 1С — никогда не коммитить
-vendor/
+vendor/*
+!vendor/README.md
 # Файлы лицензий 1С
 licenses/
 *.lic

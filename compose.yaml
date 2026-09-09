@@ -1,0 +1,45 @@
+name: convert2edt
+
+services:
+
+  converter:
+    image: ${CONVERTER_IMAGE:-convert2edt/converter:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      additional_contexts:
+        distr: ${VENDOR_DIR:-./vendor}
+      args:
+        PLATFORM_VERSION: ${PLATFORM_VERSION:-unknown}
+        EDT_VERSION: ${EDT_VERSION:-unknown}
+        EDT_PLATFORM_SUPPORT: ${EDT_PLATFORM_SUPPORT:-8.3.27}
+        REVISION: ${REVISION:-r1}
+    init: true
+    environment:
+      TZ: ${TZ:-Europe/Moscow}
+
+      V8_VERSION: ${V8_VERSION:-}
+
+      V8_IB_USER: ${V8_IB_USER:-}
+      V8_IB_PWD: ${V8_IB_PWD:-}
+      V8_IB_PWD_FILE: ${V8_IB_PWD_FILE:-}
+
+      V8_DB_SRV_DBMS: ${V8_DB_SRV_DBMS:-PostgreSQL}
+      V8_DB_SRV_USR: ${V8_DB_SRV_USR:-}
+      V8_DB_SRV_PWD: ${V8_DB_SRV_PWD:-}
+      V8_DB_SRV_PWD_FILE: ${V8_DB_SRV_PWD_FILE:-}
+
+      CONVERT_CLEAN_DST: ${CONVERT_CLEAN_DST:-0}
+      CONVERT_KEEP_TEMP: ${CONVERT_KEEP_TEMP:-0}
+      CONVERT_EDT_XMX: ${CONVERT_EDT_XMX:-2g}
+      CONVERT_EDT_TIMEOUT: ${CONVERT_EDT_TIMEOUT:-1800}
+      CONVERT_TEMP_ROOT: /work/cache/tmp
+      CONVERT_EDT_WS_ROOT: /work/cache/edt-ws
+    volumes:
+      - ./input:/work/input
+      - ./output:/work/output
+      - ./cache:/work/cache
+      - ./tests:/work/tests:ro
+      # 1C license files (*.lic) — required by the platform for some operations.
+      # Copy your license files into ./licenses (directory is gitignored).
+      - ./licenses:/var/1C/licenses

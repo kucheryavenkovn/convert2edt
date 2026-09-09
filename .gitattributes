@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.cf binary
+*.cfe binary
+*.epf binary
+*.erf binary
+*.zip binary
+*.tar.gz binary
+*.7z binary
+*.png binary
+*.jpg binary
