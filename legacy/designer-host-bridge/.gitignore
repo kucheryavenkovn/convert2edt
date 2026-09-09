@@ -1,0 +1,26 @@
+# Секреты
+.secrets/
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Дистрибутивы 1С (закрытые, качаются вручную)
+distr/*
+!distr/README.md
+
+# Локальное окружение
+.env
+.env.local
+
+# Docker
+*.lic
+
+# OS/IDE
+Thumbs.db
+.DS_Store
+
+.distr-extra/
+
+host/bridge_config.json
+host/*.log

@@ -1,0 +1,21 @@
+{
+  "listen": "0.0.0.0:17833",
+  "token": "CHANGE-ME-long-random-string",
+  "platformVersion": "auto",
+  "platformRoots": [
+    "C:\\Program Files\\1cv8",
+    "C:\\Program Files (x86)\\1cv8"
+  ],
+  "allowedStorages": [
+    "E:\\crs\\gitsync"
+  ],
+  "bridgeRoot": "E:\\1c-bridge",
+  "pathMappings": [
+    { "docker": "/bridge", "windows": "E:\\1c-bridge" },
+    { "docker": "/storage", "windows": "E:\\crs\\gitsync" }
+  ],
+  "timeoutSeconds": 1800,
+  "maxConcurrentJobs": 1,
+  "logFile": "E:\\1c-bridge\\bridge.log",
+  "licenseSmoke": { "enabled": true, "cacheSeconds": 300 }
+}

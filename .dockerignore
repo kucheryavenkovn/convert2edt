@@ -1,0 +1,18 @@
+# Дистрибутивы попадают в build через BuildKit named context `vendor`,
+# а не через основной контекст:
+vendor/
+input/
+output/
+cache/
+licenses/
+legacy/
+tests/
+docs/
+.git/
+.gitignore
+.dockerignore
+.env
+.secrets/
+__pycache__/
+*.pyc
+*.log

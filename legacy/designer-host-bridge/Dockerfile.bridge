@@ -1,0 +1,130 @@
+# syntax=docker/dockerfile:1
+#
+# converter-bridge (вариант B, docs/SPEC.md п.4): БЕЗ платформы 1С-клиента в контейнере.
+#
+#   Windows Host Bridge (1cv8 DESIGNER, локальная лицензия)
+#        ↑ HTTP (wrapper /opt/1cv8/x86_64/<ver>/1cv8 → /usr/local/bin/1cv8-host)
+#   этот контейнер: gitsync → ibcmd (Linux, из deb64 common+server) → 1cedtcli → git
+#
+# Дистрибутивы через named context `distr`:
+#   - deb64_8_3_27_*.zip  (нужны ТОЛЬКО пакеты common+server → ibcmd/rac; клиент НЕ нужен)
+#   - 1c_edt_distr_offline_*_linux_x86_64.tar.gz
+# Версия ibcmd должна совпадать с Windows-платформой, создающей временную ИБ (та же 8.3.27.x).
+
+ARG BASE_IMAGE=debian:bookworm-slim
+
+# --------------------------------------------------------------- ibcmd installer
+FROM ${BASE_IMAGE} AS ibcmd-installer
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY docker/scripts/install-ibcmd.sh /usr/local/sbin/onec-image/install-ibcmd.sh
+
+# Компоненты client НЕ нужны: 1cv8 в контейнере отсутствует, его роль играет wrapper.
+RUN --mount=type=bind,from=distr,source=.,target=/distr,readonly \
+    bash /usr/local/sbin/onec-image/install-ibcmd.sh /distr \
+  && test -x /opt/1cv8/current/ibcmd \
+  && test -x /opt/1cv8/current/rac
+
+# ------------------------------------------------------------------------- EDT
+FROM ${BASE_IMAGE} AS edt-installer
+ARG EDT_PLATFORM_SUPPORT=8.3.27
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+      ca-certificates curl openjdk-17-jre-headless unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY docker/scripts/install-edt.sh /usr/local/sbin/onec-image/install-edt.sh
+
+RUN --mount=type=bind,from=distr,source=.,target=/distr,readonly \
+    bash /usr/local/sbin/onec-image/install-edt.sh /distr "${EDT_PLATFORM_SUPPORT}" \
+  && rm -rf /tmp/* /var/tmp/*
+
+# ----------------------------------------------------------------------- final
+FROM ${BASE_IMAGE} AS converter-bridge
+ARG PLATFORM_VERSION=unknown
+ARG EDT_VERSION=unknown
+ARG GITSYNC_VERSION=3.8.0
+ARG OSCRIPT_VERSION=1.9.3
+ARG REVISION=r1
+
+LABEL org.opencontainers.image.title="1c-storage-to-edt-bridge" \
+      org.opencontainers.image.description="1C storage -> HostBridge(1cv8) -> gitsync -> ibcmd -> EDT -> git (variant B)" \
+      org.opencontainers.image.version="${PLATFORM_VERSION}+edt${EDT_VERSION}" \
+      onec.converter.platform-version="${PLATFORM_VERSION}" \
+      onec.converter.edt-version="${EDT_VERSION}" \
+      onec.converter.gitsync-version="${GITSYNC_VERSION}" \
+      onec.converter.revision="${REVISION}"
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      git \
+      openssh-client \
+      openjdk-17-jre-headless \
+      procps \
+      psmisc \
+      python3 \
+      rsync \
+      unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+# ibcmd/rac (каталог версии создаётся установкой deb) + EDT
+COPY --from=ibcmd-installer /opt/1cv8 /opt/1cv8
+COPY --from=edt-installer /opt/1C/1CE /opt/1C/1CE
+
+# Wrapper 1cv8-host кладём файлом 1cv8 В КАТАЛОГ ВЕРСИИ: v8runner определяет версию
+# платформы regex'ом 8(\.\d+){3} из полного пути (docs/research/05 п.2), а v8find
+# находит каталог по маске 8.?.*.* — рядом реальный ibcmd той же версии.
+COPY docker/wrapper/1cv8-host /usr/local/bin/1cv8-host
+RUN chmod 755 /usr/local/bin/1cv8-host \
+  && verdir="$(find /opt/1cv8/x86_64 -mindepth 1 -maxdepth 1 -type d -regex '.*/8\.[0-9][0-9.]*' | sort -V | tail -1)" \
+  && test -n "$verdir" \
+  && ln -s /usr/local/bin/1cv8-host "$verdir/1cv8" \
+  && ln -sfn "$verdir" /opt/1cv8/current \
+  && ls -la "$verdir" | head -20
+
+ENV PATH="/opt/1C/1CE/components/1cedtcli:/opt/1cv8/current:${JAVA_HOME}/bin:${PATH}"
+
+# OneScript 1.9.x (CI gitsync = 1.9.2). mono-complete: Newtonsoft.Json (gitsync)
+# требует System.Runtime.Serialization/Numerics и т.п., которых нет в mono-runtime.
+RUN curl -fsSL -o /tmp/oscript.deb \
+      "https://oscript.io/downloads/${OSCRIPT_VERSION}/x64/onescript-engine_${OSCRIPT_VERSION}_all.deb" \
+  || curl -fsSL -o /tmp/oscript.deb \
+      "https://oscript.io/downloads/$(printf '%s' "${OSCRIPT_VERSION}" | tr '.' '_')/x64/onescript-engine_${OSCRIPT_VERSION}_all.deb" \
+  && apt-get update \
+  && apt-get install -y mono-complete /tmp/oscript.deb \
+  && rm -rf /var/lib/apt/lists/* /tmp/oscript.deb \
+  && cfg="$(find /etc /usr/lib /usr/share -maxdepth 3 -name oscript.cfg 2>/dev/null | head -1)" \
+  && if [ -n "$cfg" ]; then \
+       if grep -q '^[[:space:]]*#*[[:space:]]*systemLanguage[[:space:]]*=' "$cfg"; then \
+         sed -i 's/^[[:space:]]*#*[[:space:]]*systemLanguage[[:space:]]*=.*/systemLanguage = ru/' "$cfg"; \
+       else \
+         printf '\nsystemLanguage = ru\n' >> "$cfg"; \
+       fi; \
+     fi \
+  && oscript -version
+
+# gitsync + plugins (каталог плагинов фиксирован env)
+ENV GITSYNC_PLUGINS_PATH=/opt/gitsync/plugins
+RUN opm install "gitsync@${GITSYNC_VERSION}" \
+  && gitsync plugins init \
+  && gitsync plugins enable use-ibcmd edtExport limit check-authors \
+  && gitsync plugins list \
+  && chmod -R a+rX /opt/gitsync \
+  && rm -rf /root/.local/share/ovm /tmp/* /var/tmp/*
+
+RUN mkdir -p /repo /storage /bridge /cache /config
+
+COPY scripts/ /opt/converter/
+RUN chmod +x /opt/converter/*.sh
+
+ENTRYPOINT ["/opt/converter/entrypoint.sh"]
+CMD ["help"]

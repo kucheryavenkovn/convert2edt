@@ -1,0 +1,99 @@
+name: crs2edt
+
+services:
+
+  # ==========================================================================
+  # Вариант B (основной): Host Bridge на Windows запускает лицензированный 1cv8.
+  # ==========================================================================
+  converter:
+    image: ${IMAGE_NAME:-crs2edt/converter-bridge}:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: ${CONVERTER_DOCKERFILE:-Dockerfile.bridge}
+      additional_contexts:
+        distr: ${DISTR_DIR:-./distr}
+      args:
+        PLATFORM_VERSION: ${PLATFORM_VERSION:-unknown}
+        EDT_VERSION: ${EDT_VERSION:-unknown}
+        EDT_PLATFORM_SUPPORT: ${ONEC_PLATFORM_SUPPORT:-8.3.27}
+        OSCRIPT_VERSION: ${OSCRIPT_VERSION:-1.9.3}
+        GITSYNC_VERSION: ${GITSYNC_VERSION:-3.8.0}
+    environment:
+      STORAGE_PATH: /storage
+      GIT_REMOTE: ${GIT_REMOTE}
+      GIT_BRANCH: ${GIT_BRANCH:-main}
+      PROJECT_PATH: ${PROJECT_PATH}
+      PROJECT_NAME: ${PROJECT_NAME:-}
+
+      STORAGE_USER: ${STORAGE_USER:-Администратор}
+      STORAGE_PASSWORD_FILE: /run/secrets/storage_password
+      GIT_SSH_KEY_FILE: /run/secrets/git_ssh_key
+
+      # Host Bridge (вариант B)
+      BRIDGE_URL: ${BRIDGE_URL:-}
+      BRIDGE_TOKEN_FILE: /run/secrets/bridge_token
+      BRIDGE_DOCKER_ROOT: /bridge
+
+      EDT_VERSION: ${EDT_VERSION}
+      ONEC_VERSION_MASK: ${ONEC_VERSION_MASK:-8.3}
+      IBCMD_THREADS: ${IBCMD_THREADS:-8}
+      INCREMENTAL: ${INCREMENTAL:-true}
+      MIGRATE_BATCH_LIMIT: ${MIGRATE_BATCH_LIMIT:-500}
+      DOMAIN_EMAIL: ${DOMAIN_EMAIL:-company.local}
+    volumes:
+      - ${BRIDGE_HOST_PATH:-E:/1c-bridge}:/bridge
+      - ${STORAGE_HOST_PATH:-E:/crs/gitsync}:/storage:ro
+      - repo-cache:/repo
+      - converter-cache:/cache
+      - ./config:/config:ro
+    secrets:
+      - storage_password
+      - git_ssh_key
+      - bridge_token
+
+  # ==========================================================================
+  # Вариант A (отложен): полная платформа в Docker, активация Developer License.
+  # Используется редко: docker compose --profile license-ui up -d license-ui
+  # ==========================================================================
+  license-ui:
+    profiles:
+      - license-ui
+    image: ${IMAGE_NAME_A:-crs2edt/converter}:${IMAGE_TAG_A:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      additional_contexts:
+        distr: ${DISTR_DIR:-./distr}
+      args:
+        PLATFORM_VERSION: ${PLATFORM_VERSION:-unknown}
+        EDT_VERSION: ${EDT_VERSION:-unknown}
+        EDT_PLATFORM_SUPPORT: ${ONEC_PLATFORM_SUPPORT:-8.3.27}
+        PLATFORM_COMPONENTS: ${PLATFORM_COMPONENTS:-server,client,ru}
+        OSCRIPT_VERSION: ${OSCRIPT_VERSION:-1.9.3}
+        GITSYNC_VERSION: ${GITSYNC_VERSION:-3.8.0}
+    hostname: ${ONEC_HOSTNAME:-onec-gitsync}
+    mac_address: ${ONEC_MAC_ADDRESS:-02:42:ac:1e:00:99}
+    environment:
+      ONEC_RUNTIME_MODE: license-ui
+      ONEC_DESKTOP_USER: usr1cv8
+    ports:
+      - "127.0.0.1:5900:5900"
+    volumes:
+      - onec-license-store:/var/1C/licenses
+      # сетевой HASP (альтернатива): - ${NETHASP_INI_PATH:-./config/nethasp.ini}:/opt/1cv8/conf/nethasp.ini:ro
+    restart: unless-stopped
+
+volumes:
+  # external: НЕ удаляется при `docker compose down`
+  onec-license-store:
+    external: true
+  repo-cache:
+  converter-cache:
+
+secrets:
+  storage_password:
+    file: ./.secrets/storage_password
+  git_ssh_key:
+    file: ./.secrets/git_ssh_key
+  bridge_token:
+    file: ./.secrets/bridge_token
