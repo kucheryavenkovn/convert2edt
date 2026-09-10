@@ -50,7 +50,6 @@ class EdtCli:
         if version:
             cmd.extend(["--version", version])
         self._run(cmd, ws)
-
     def export_project(self, ws: Path, project: Path, xml_dir: Path) -> None:
         self._run(
             [

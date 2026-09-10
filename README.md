@@ -46,6 +46,10 @@
 | `storage-to-xml` | хранилище → XML версии | cf → temp IB → XML |
 | `storage-to-edt` | хранилище → EDT версии | cf → temp IB → XML → EDT |
 | `storage-sync` | хранилище → git-история (1 версия = 1 коммит) | весь конвейер + git |
+| `dp-unpack` | .erf/.epf → текстовые исходники (v8unpack) | для git, round-trip |
+| `dp-build` | исходники v8unpack → .erf/.epf | деплой бинарника |
+| `dp-xml-to-edt` | XML внешних отчётов/обработок → EDT-проект | `1cedtcli import` |
+| `sync-all` | всё сразу по TOML-конфигу | `sync.toml` |
 | `info` | версии ibcmd / 1cedtcli / платформы | |
 | `detect` | определить тип источника | |
 
@@ -129,6 +133,61 @@ worktree и не соседние проекты), state ведётся на к�
 > минимальный патч `docker/patches/tool1cd-depot-ver100.patch`
 > (100 трактуется как Ver7-layout, проверено на реальном хранилище).
 
+## Внешние отчёты и обработки (EPF/ERF)
+
+Два режима хранения в том же monorepo (могут использоваться одновременно):
+
+```
+storage-git/
+├── external/         # EDT-проект внешних отчётов и обработок (из XML)
+│   └── src/ExternalReports/<Имя>/...
+└── external-src/     # v8unpack-исходники (из бинарников .erf/.epf)
+    └── <Имя>/ (root, version, модули — текст)
+```
+
+1. **`dp-xml-to-edt`** — XML-выгрузка внешнего отчёта/обработки (формата
+   Конфигуратора) → **EDT-проект внешних отчётов** (`1cedtcli import`,
+   проекты накапливаются в одном каталоге). Обратно: `edt-to-xml`.
+   Известные quirks EDT 2026.1 CLI: для external-проектов `--version`
+   обязательна и должна быть короткой (`8.3.27`, не `8.3.27.2342`),
+   иначе NPE — оркестратор нормализует сам.
+2. **`dp-unpack` / `dp-build`** — бинарник ↔ текстовые исходники через
+   `v8unpack` (e8tools, MPL-2.0): полный round-trip без платформы и
+   лицензии; проверено: пересборка `ВнешнийОтчет1.erf` байт-в-байт
+   воспроизводит распаковку.
+
+Ограничение (зафиксировано по результатам проверки): **бинарник ↔
+Designer-XML** внешних обработок средствами `ibcmd + 1cedtcli невозможен**
+в headless: CLI импортирует/экспортирует только XML, `build` бинарник не
+создаёт (автокомпиляция в `bin/` — поведение EDT IDE, см. доку
+«Проект внешних отчетов и обработок»). Официальный путь с бинарником —
+1cv8 DESIGNER (`/DumpExternalDataProcessorOrReportToFiles` /
+`/LoadExternalDataProcessorOrReportFromFiles`, как в upstream `dp2xml`/
+`dp2epf`) — требует лицензии и в этот конвейер не входит. Поэтому:
+бинарник → EDT-проект: сначала получите XML (одноразовый Designer-dump);
+разработка в EDT; исходники в git — `external/` (XML) или
+`external-src/` (v8unpack, прямой round-trip с бинарником).
+
+## Деплой
+
+| Что | Как |
+|---|---|
+| CF из EDT-проекта | `1c-convert edt-to-cf <project> <out.cf>` (далее штатно: ИБ, dt...) |
+| CFE расширения | `1c-convert edt-to-cf` по проекту расширения выдаёт .cf контейнер |
+| .erf/.epf | `1c-convert dp-build <worktree>/external-src/<Имя> <out.erf>` |
+| XML внешних обработок | `1c-convert edt-to-xml <worktree>/external <xml-dir>` |
+| push | git на вашей стороне (`sync-all` не пушит) |
+
+## Конфиг синхронизации (sync.toml)
+
+Единый конфиг путей для `sync-all` (копия `sync.toml.example`):
+`[worktree]` — git-репозиторий монорепо; `[configuration]` — хранилище
+конигурации; `[[extension]]` — хранилища расширений (сколько нужно);
+`[external]` — каталог с бинарными .erf/.epf (`dir` → `external-src`) и
+опционально каталог XML (`xml_dir` → EDT-проект `external`).
+Пути указываются внутри контейнера (см. монтирования в `compose.yaml`;
+fixtures смонтированы в `/work/fixtures`).
+
 Хранилище монтируется read-only (`STORAGE_HOST_PATH` в `.env` → `/storage`)
 и перед обработкой копируется в `cache/tmp` (требуется `data/pack` рядом
 с БД и локальный доступ к файлу). `ctool1cd` читает формат напрямую
@@ -156,6 +215,10 @@ docker compose run --rm converter `
 # 5. хранилище → git (в .env: STORAGE_HOST_PATH=E:/crs/gitsync)
 docker compose run --rm converter storage-info /storage
 docker compose run --rm converter storage-sync /storage /work/output/storage-git
+
+# 6. всё сразу по конфигу (хранилища + расширения + внешние обработки)
+cp sync.toml.example sync.toml   # пути уже указывают на fixtures
+docker compose run --rm converter sync-all
 ```
 
 Прямой вызов инструментов образа:

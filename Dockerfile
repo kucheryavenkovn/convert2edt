@@ -117,31 +117,68 @@ RUN apt-get update \
   && cp lib/libtool1cd.so /out/lib/ \
   && rm -rf /tmp/tool1cd-* /var/lib/apt/lists/*
 
+# --------------------------------------------------------------- v8unpack builder
+# v8unpack unpacks/builds binary dp files (.epf/.erf) without the 1C platform
+# (modules and metadata become plain text sources, round-trip verified).
+# Source: https://github.com/e8tools/v8unpack (MPL-2.0, see THIRD_PARTY_NOTICES.md).
+# Change vs upstream: shared boost instead of the hardcoded static boost
+# (sed removes Boost_USE_STATIC_* from CMakeLists.txt).
+FROM runtime-base AS v8unpack-builder
+ARG V8UNPACK_REF=d34bb1e3565572e0de30a4aa4d66d6cd3e3e08e2
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      cmake \
+      curl \
+      g++ \
+      libboost-filesystem-dev \
+      libboost-iostreams-dev \
+      libboost-system-dev \
+      make \
+      zlib1g-dev \
+  && rm -rf /var/lib/apt/lists/* \
+  && curl -fsSL "https://github.com/e8tools/v8unpack/archive/${V8UNPACK_REF}.tar.gz" \
+     | tar -xz -C /tmp \
+  && cd /tmp/v8unpack-* \
+  && sed -i -e '/Boost_USE_STATIC_LIBS ON/d' -e '/Boost_USE_MULTITHREADED OFF/d' -e '/Boost_USE_STATIC_RUNTIME ON/d' CMakeLists.txt \
+  && mkdir build && cd build \
+  && cmake .. -DCMAKE_BUILD_TYPE=Release > /dev/null \
+  && make -j"$(nproc)" > /dev/null 2>&1 \
+  && mkdir -p /out/bin \
+  && find . -type f -name v8unpack -exec cp {} /out/bin/ \; \
+  && test -x /out/bin/v8unpack \
+  && rm -rf /tmp/v8unpack-* /var/lib/apt/lists/*
+
 # ------------------------------------------------------------------------ final
 FROM runtime-base AS converter
 ARG PLATFORM_VERSION=unknown
 ARG EDT_VERSION=unknown
 ARG TOOL1CD_REF=f0361ad849076507684fe77bac7d59569a7ba244
+ARG V8UNPACK_REF=d34bb1e3565572e0de30a4aa4d66d6cd3e3e08e2
 ARG REVISION=r1
 
 LABEL org.opencontainers.image.title="1c-converter" \
-      org.opencontainers.image.description="1C configuration converter: ibcmd + 1cedtcli + ctool1cd (storage) + thin orchestration (based on approaches from arkuznetsov/1CFilesConverter and ShadobaAI/kafka-tools)" \
+      org.opencontainers.image.description="1C configuration converter: ibcmd + 1cedtcli + ctool1cd (storage) + v8unpack (dp) + thin orchestration (based on approaches from arkuznetsov/1CFilesConverter and ShadobaAI/kafka-tools)" \
       org.opencontainers.image.version="${PLATFORM_VERSION}+edt${EDT_VERSION}" \
       onec.converter.platform-version="${PLATFORM_VERSION}" \
       onec.converter.edt-version="${EDT_VERSION}" \
       onec.converter.tool1cd-ref="${TOOL1CD_REF}" \
+      onec.converter.v8unpack-ref="${V8UNPACK_REF}" \
       onec.converter.revision="${REVISION}"
 
 COPY --from=platform-installer /opt/1cv8 /opt/1cv8
 COPY --from=edt-installer /opt/1C/1CE /opt/1C/1CE
 COPY --from=tool1cd-builder /out/bin/ctool1cd /usr/local/bin/ctool1cd
 COPY --from=tool1cd-builder /out/lib/libtool1cd.so /usr/local/lib/libtool1cd.so
+COPY --from=v8unpack-builder /out/bin/v8unpack /usr/local/bin/v8unpack
 
-# git: storage-sync commits; boost/zlib: ctool1cd runtime (icu comes via platform deps)
+# git: storage-sync commits; boost/zlib: ctool1cd+v8unpack runtime (icu comes via platform deps)
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
       git \
       libboost-filesystem1.74.0 \
+      libboost-iostreams1.74.0 \
       libboost-regex1.74.0 \
       zlib1g \
   && rm -rf /var/lib/apt/lists/* \

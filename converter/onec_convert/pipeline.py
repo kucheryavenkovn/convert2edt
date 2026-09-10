@@ -13,7 +13,6 @@ from .ibcmd import Ibcmd
 from .proc import info, run_tool
 
 
-VCS_DIRS = frozenset({".git"})
 
 SYNC_COMMITTER_NAME = "1c-convert storage-sync"
 SYNC_COMMITTER_EMAIL = "1c-convert@storage.local"
@@ -123,6 +122,8 @@ def commit_version(worktree: Path, project_name: str, version, author: str) -> b
     return True
 
 
+VCS_DIRS = frozenset({".git"})
+
 class TempArea:
     def __init__(self, root: Path, name: str) -> None:
         self.root = root / name
@@ -212,6 +213,21 @@ class Pipeline:
                 f"src/Configuration/Configuration.mdo was not found in {project} — "
                 "import result is invalid"
             )
+
+    def assert_edt_external_project(self, project: Path) -> None:
+        for marker in (".project", "src"):
+            if not (project / marker).exists():
+                raise RuntimeError(
+                    f"EDT external project marker '{marker}' was not found in {project} — "
+                    "import result is invalid"
+                )
+        for section in ("ExternalReports", "ExternalDataProcessors"):
+            if any((project / "src" / section).glob("*")):
+                return
+        raise RuntimeError(
+            f"neither src/ExternalReports nor src/ExternalDataProcessors was found in {project} — "
+            "external import result is invalid"
+        )
 
     def assert_file(self, path: Path) -> None:
         if not path.is_file() or path.stat().st_size == 0:
@@ -493,6 +509,66 @@ class Pipeline:
         self.ibcmd.config_export(data, self.file_ib(ib), xml)
         self.assert_xml_dir(xml)
         return xml
+
+
+    def dp_xml_to_edt(self, src_xml: Path, dst_project: Path) -> None:
+        def steps() -> None:
+            if not src_xml.is_dir():
+                raise ValueError(f"directory with external dp XML expected: {src_xml}")
+            ws = self.workspace(dst_project)
+            dst_project.mkdir(parents=True, exist_ok=True)
+            version = self.cfg.effective_v8_version()
+            if version:
+                parts = version.split(".")
+                if len(parts) > 3:
+                    version = ".".join(parts[:3])
+            if not version:
+                version = "8.3.27"
+            self.edt.import_project(ws, src_xml, dst_project, version=version)
+            self.assert_edt_external_project(dst_project)
+            info(f"result: {dst_project}")
+
+        self.run("dp-xml-to-edt", steps)
+
+    def dp_unpack(self, src: Path, dst_root: Path) -> list[Path]:
+        from .v8unpack import unpack_to_sources
+
+        def steps() -> None:
+            binaries = self._collect_dp_binaries(src)
+            if not binaries:
+                raise ValueError(f"no .epf/.erf files found in {src}")
+            dst_root.mkdir(parents=True, exist_ok=True)
+            for binary in binaries:
+                target = dst_root / binary.stem
+                info(f"unpacking {binary.name} -> {target}")
+                unpack_to_sources(binary, target)
+                if not any(target.iterdir()):
+                    raise RuntimeError(f"v8unpack produced no sources in {target}")
+
+        self.run("dp-unpack", steps)
+
+    def dp_build(self, source_dir: Path, out_file: Path) -> None:
+        from .v8unpack import build_from_sources
+
+        def steps() -> None:
+            info(f"building {out_file.name} from {source_dir}")
+            build_from_sources(source_dir, out_file)
+            self.assert_file(out_file)
+            info(f"result: {out_file}")
+
+        self.run("dp-build", steps)
+
+    def _collect_dp_binaries(self, src: Path) -> list[Path]:
+        if src.is_file() and src.suffix.lower() in (".epf", ".erf"):
+            return [src]
+        if src.is_dir():
+            return sorted(
+                item
+                for item in src.iterdir()
+                if item.is_file() and item.suffix.lower() in (".epf", ".erf")
+            )
+        raise ValueError(f".epf/.erf file or directory expected: {src}")
+
 
 
 def platform_version() -> str:

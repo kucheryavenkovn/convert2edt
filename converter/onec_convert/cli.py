@@ -289,7 +289,51 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
 
+    p = sub.add_parser(
+        "dp-xml-to-edt",
+        help="external reports/processors XML (Designer dump) -> 1C:EDT external project",
+    )
+    p.add_argument("src", type=path_arg)
+    p.add_argument("dst", type=path_arg)
+    p.set_defaults(
+        func=make_handler(lambda pl, a: pl.dp_xml_to_edt(a.src, a.dst))
+    )
+
+    p = sub.add_parser(
+        "dp-unpack",
+        help=".epf/.erf binary -> text sources (v8unpack), для хранения в git",
+    )
+    p.add_argument("src", type=path_arg)
+    p.add_argument("dst", type=path_arg)
+    p.set_defaults(func=make_handler(lambda pl, a: pl.dp_unpack(a.src, a.dst)))
+
+    p = sub.add_parser(
+        "dp-build",
+        help="v8unpack sources -> .epf/.erf binary (deploy)",
+    )
+    p.add_argument("src", type=path_arg)
+    p.add_argument("dst", type=path_arg)
+    p.set_defaults(func=make_handler(lambda pl, a: pl.dp_build(a.src, a.dst)))
+
+    p = sub.add_parser(
+        "sync-all",
+        help="run all syncs from a TOML config (storages, extensions, external dp)",
+    )
+    p.add_argument("--config", type=path_arg, default=Path("/work/sync.toml"))
+    p.set_defaults(func=cmd_sync_all)
+
     return parser
+
+
+def cmd_sync_all(args: argparse.Namespace) -> int:
+    from .syncall import SyncConfigError, sync_all
+
+    cfg = Config()
+    try:
+        sync_all(cfg, args.config)
+    except (SyncConfigError, ValueError, RuntimeError) as error:
+        fail(str(error))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

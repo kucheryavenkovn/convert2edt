@@ -1,0 +1,33 @@
+# sync.toml — конфиг синхронизации для `1c-convert sync-all --config /work/sync.toml`.
+# Пути указываются ВНУТРИ контейнера (см. монтирования в compose.yaml).
+# Скопируйте в sync.toml и настройте под себя.
+
+[worktree]
+# git-репозиторий, куда складываются все проекты (создаётся при отсутствии)
+path = "/work/output/storage-git"
+# необязательно: файл мапинга авторов и домен для email (см. README)
+# authors_file = "/work/authors.txt"
+# domain = "company.local"
+
+[configuration]
+# хранилище конфигурации: каталог с 1cv8ddb.1CD или путь к самому файлу
+storage = "/work/fixtures/crs/cf"
+# имя каталога проекта EDT в worktree
+project = "configuration"
+
+[[extension]]
+# хранилище расширения (может быть много секций [[extension]])
+name = "Расширение1"
+storage = "/work/fixtures/crs/ext/Расширение1"
+project = "extension"
+
+[external]
+# каталог с бинарными внешними отчётами/обработками (.erf/.epf):
+# каждый файл распаковывается в <worktree>/<sources>/<Имя> (исходники v8unpack)
+dir = "/work/fixtures/erf"
+sources = "external-src"
+
+# необязательно: каталог с XML внешних отчётов/обработок (выгрузка Конфигуратора)
+# -> EDT-проект внешних отчётов и обработок <worktree>/<project>
+# xml_dir = "/work/fixtures/dp-xml"
+# project = "external"

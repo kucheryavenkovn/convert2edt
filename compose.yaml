@@ -40,6 +40,9 @@ services:
       - ./output:/work/output
       - ./cache:/work/cache
       - ./tests:/work/tests:ro
+      # fixtures: тестовые хранилища/обработки и sync-конфиг (см. sync.toml.example)
+      - ./fixtures:/work/fixtures:ro
+      - ./sync.toml:/work/sync.toml:ro
       # 1C configuration storage (read-only); copied to cache/temp before use
       - ${STORAGE_HOST_PATH:-./storage}:/storage:ro
       # configuration EXTENSION storage (optional, read-only)
