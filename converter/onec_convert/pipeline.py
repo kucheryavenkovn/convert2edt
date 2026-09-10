@@ -441,7 +441,6 @@ class Pipeline:
         authors_file: Path | None = None,
         domain: str = "storage.local",
         extension: str = "",
-        base: str = "",
     ) -> None:
         def steps() -> None:
             temp, tool, local_db, versions, users = self.storage_prepare(
@@ -460,16 +459,12 @@ class Pipeline:
             )
             project_dir = worktree / project_name
             ensure_git_repo(worktree)
-            base_cf = None
-            if extension:
-                base_cf = self.resolve_base_cf(base, temp)
-                info(f"extension mode: name={extension}, base={base_cf or 'empty configuration'}")
             for v in todo:
                 info(f"--- version {v.number}: {v.comment or '(no comment)'}")
                 cf = temp.root / f"ver-{v.number}.cf"
                 tool.dump_config(local_db, v.number, cf)
                 if extension:
-                    xml = self.extension_to_xml(cf, extension, temp, base_cf, v.number)
+                    xml = self.extension_to_xml(cf, extension, temp, None, v.number)
                     self.edt_import_flow(xml, project_dir)
                 else:
                     self.cf_to_edt(cf, project_dir)
@@ -481,36 +476,21 @@ class Pipeline:
 
         self.run("storage-sync", steps)
 
-    def resolve_base_cf(self, base: str, temp: TempArea) -> Path | None:
-        from .tool1cd import Tool1CD, locate_storage_db, prepare_local_copy
-
-        if not base:
-            return None
-        path = Path(base)
-        if path.is_file() and path.suffix.lower() == ".cf":
-            return path
-        db = locate_storage_db(base)
-        local_db = prepare_local_copy(db, temp.root / "base")
-        base_cf = temp.root / "base.cf"
-        info(f"dumping base configuration from {base} (latest version)...")
-        Tool1CD(self.cfg).dump_config(local_db, 0, base_cf)
-        return base_cf
-
     def extension_to_xml(
         self, cfe_file: Path, extension: str, temp: TempArea, base_cf: Path | None, version: int
     ) -> Path:
+        del base_cf
         ib = temp.root / f"ext_ib_{version}"
         data = temp.root / f"ext_data_{version}"
         data.mkdir(parents=True, exist_ok=True)
-        if base_cf is not None:
-            self.ibcmd.create_from_cf(data, ib, base_cf)
-        else:
-            self.ibcmd.create_empty(data, ib)
-        info(f"loading extension {extension} into temporary infobase...")
-        self.ibcmd.config_load(data, self.file_ib(ib), cfe_file, extension=extension)
+        info(
+            f"loading extension dump into temporary infobase (as configuration; "
+            "ibcmd --extension load drops storage-dumped objects)"
+        )
+        self.ibcmd.create_from_cf(data, ib, cfe_file)
         xml = temp.root / f"ext_xml_{version}"
-        info(f"exporting extension {extension} to 1C:Designer XML...")
-        self.ibcmd.config_export(data, self.file_ib(ib), xml, extension=extension)
+        info("exporting extension to 1C:Designer XML...")
+        self.ibcmd.config_export(data, self.file_ib(ib), xml)
         self.assert_xml_dir(xml)
         return xml
 

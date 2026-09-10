@@ -41,12 +41,22 @@ def locate_storage_db(raw: str) -> Path:
     )
 
 
+def _copy_best_effort(src, dst, *, follow_symlinks=True):
+    try:
+        shutil.copy2(src, dst, follow_symlinks=follow_symlinks)
+        return dst
+    except OSError:
+        if str(src).lower().endswith(".cfl"):
+            return None
+        raise
+
+
 def prepare_local_copy(db_file: Path, dest_root: Path) -> Path:
     storage_root = db_file.parent
     dest = dest_root / "storage"
     if dest.exists():
         shutil.rmtree(dest)
-    shutil.copytree(storage_root, dest)
+    shutil.copytree(storage_root, dest, copy_function=_copy_best_effort)
     local_db = dest / db_file.name
     if not local_db.is_file():
         raise Tool1CDError(f"storage copy failed: {local_db} not found")

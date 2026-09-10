@@ -274,11 +274,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="sync a configuration extension storage (extension name)",
     )
-    p.add_argument(
-        "--base",
-        default="",
-        help="base configuration for extension: configuration storage path or *.cf file",
-    )
     p.set_defaults(
         func=make_handler(
             lambda pl, a: pl.storage_sync(
@@ -290,7 +285,6 @@ def build_parser() -> argparse.ArgumentParser:
                 authors_file=a.authors,
                 domain=a.domain,
                 extension=a.extension,
-                base=a.base,
             )
         )
     )

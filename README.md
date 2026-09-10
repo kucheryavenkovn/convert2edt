@@ -90,12 +90,11 @@ EDT workspace создаётся заново на каждый запуск —
 ### Хранилище расширений в тот же monorepo
 
 Отдельное хранилище расширения синкается **в тот же worktree** отдельным
-проектом, с базовой конфигурацией (`--base` — хранилище конфигурации или
-*.cf):
+проектом:
 
 ```bash
 1c-convert storage-sync /storage-ext /work/output/storage-git \
-    --extension Расширение --base /storage --project-name extension
+    --extension Расширение1 --project-name extension
 ```
 
 ```
@@ -105,12 +104,25 @@ storage-git/
 └── .storage-sync.json   # {"projects": {"configuration": 4, "extension": 2}}
 ```
 
-Шаг расширения по версии: `ctool1cd -drc N` → temp-ИБ с базовой
-конфигурацией → `ibcmd config load/export --extension=<имя>` (механика
-upstream `ext2xml.cmd`) → `1cedtcli import` в отдельный каталог. Имя
-расширения — register-имя в ИБ (параметр, как 3-й аргумент upstream); в EDT
-оба проекта в одном workspace ассоциируются сами. Маунт второго хранилища —
-`EXT_STORAGE_HOST_PATH` в `.env` (→ `/storage-ext`).
+Механика изоляции: каждый проект синкается только в свой каталог
+(`git add -A -- <project-name>`), `ensure_git_repo` делает `git init` лишь
+если `.git` отсутствует (существующая история никогда не сбрасывается),
+полный реимпорт EDT очищает только `<worktree>/<project-name>` (не корень
+worktree и не соседние проекты), state ведётся на каждый проект отдельно.
+В EDT оба проекта в одном workspace ассоциируются сами. Маунт второго
+хранилища — `EXT_STORAGE_HOST_PATH` в `.env` (→ `/storage-ext`).
+
+Шаг расширения по версии: `ctool1cd -drc N` → temp-ИБ (дамп загружается
+**как конфигурация**: `ibcmd infobase create --load=...` + `config export`
+без `--extension`) → `1cedtcli import` в отдельный каталог.
+
+> Обходной путь (зафиксирован): `ibcmd config load --extension=<имя>`
+> при загрузке дампа из хранилища расширеня (depot ver 100) молча теряет
+> объекты расширения (общие модули, роли) — проверено на реальном
+> хранилище; XML при загрузке «как конфигурация» сохраняет все объекты и
+> маркеры расширения (`ConfigurationExtensionPurpose`). Имя расширения
+> (`--extension`) используется для журнала/каталога; register-имя в ИБ
+> больше не применяется.
 
 > Примечание: хранилища расширений используют версию формата depot 100,
 > которую upstream `ctool1cd` не знает; в сборку образа включён
