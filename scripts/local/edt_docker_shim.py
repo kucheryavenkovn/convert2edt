@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 IMAGE = "convert2edt/converter:latest"
-PATH_KEYS = {"-data", "--project", "--configuration-files"}
+PATH_KEYS = {"-data", "--project", "--configuration-files", "-file"}
 
 DRIVE_MAP = {"C": "/c", "D": "/d", "E": "/e"}
 

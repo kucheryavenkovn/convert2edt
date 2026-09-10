@@ -59,6 +59,20 @@ if (-not $platform) {
 if (-not $platform) { Fail "платформа 1С не найдена в $($platformRoots -join ', ')" }
 Ok "платформа: $($platform.Version) ($($platform.Bin))"
 
+# --- Java для EDT (EDT 2026.2 требует Java 25; берём Axiom Full, НЕ из PATH) --
+$javaHome = [Environment]::GetEnvironmentVariable('JAVA_HOME', 'Machine')
+if (-not $javaHome -or -not (Test-Path (Join-Path $javaHome 'bin\javaw.exe'))) {
+    $javaHome = Get-ChildItem "$env:ProgramW6432\1C\1CE\components" -Directory -Filter 'axiom-jdk-full-*' -ErrorAction SilentlyContinue |
+        Sort-Object Name | Select-Object -Last 1 | ForEach-Object { $_.FullName }
+}
+if ($javaHome -and (Test-Path (Join-Path $javaHome 'bin\javaw.exe'))) {
+    $env:JAVA_HOME = $javaHome
+    $env:PATH = "$(Join-Path $javaHome 'bin');$env:PATH"
+    Ok "Java (для EDT): $javaHome"
+} else {
+    Write-Host "[WARN] Axiom JDK не найден — EDT возьмёт Java из PATH (может не подойти)" -ForegroundColor Yellow
+}
+
 # --- EDT / 1cedtcli -------------------------------------------------------
 $edtRoot = "$env:ProgramW6432\1C\1CE\components"
 $edt = $null
@@ -75,15 +89,19 @@ Ok "EDT: $($edt.Name)"
 # переключаем EDT-шаг на docker-шим (образ convert2edt/converter).
 $edtExe = Join-Path $edt.FullName '1cedtcli.exe'
 $probeWs = Join-Path $env:TEMP ('edt-probe-' + [guid]::NewGuid().ToString('N'))
-$probe = Start-Process -FilePath $edtExe -ArgumentList '-data', $probeWs, '-timeout', '90', '-command', 'version' `
+$probe = Start-Process -FilePath $edtExe -ArgumentList '-data', $probeWs, '-timeout', '280', '-command', 'version' `
     -RedirectStandardOutput "$env:TEMP\edt-probe-out.txt" -RedirectStandardError "$env:TEMP\edt-probe-err.txt" -PassThru
-$edtOk = $probe.WaitForExit(120000)
+$edtOk = $probe.WaitForExit(300000)
 if (-not $edtOk) { Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue }
 Remove-Item -Recurse -Force $probeWs -ErrorAction SilentlyContinue
+# ExitCode у Start-Process бывает пуст даже при успехе — считаем успехом ответ с версией
+$probeFirst = Get-Content "$env:TEMP\edt-probe-out.txt" -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $probeFirst) { $probeFirst = '' }
+$edtOk = $edtOk -and ($probeFirst -match '\d')
 
 $useShim = $false
-if ($edtOk -and $probe.ExitCode -eq 0) {
-    Ok "EDT preflight: локальный 1cedtcli отвечает"
+if ($edtOk) {
+    Ok "EDT preflight: локальный 1cedtcli отвечает ($probeOut)"
 } else {
     Write-Host "[WARN] локальный 1cedtcli не прошёл preflight (code=$($probe.ExitCode)) — известная проблема EDT 2026.2 Windows CLI" -ForegroundColor Yellow
     if (Get-Command docker -ErrorAction SilentlyContinue) {
@@ -100,7 +118,19 @@ if ($edtOk -and $probe.ExitCode -eq 0) {
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
 $ctool = Join-Path $tools 'ctool1cd.exe'
 if (-not (Test-Path $ctool)) {
-    Write-Host "скачиваю ctool1cd (e8tools releases, c DLL времени выполнения)..."
+    # лучший путь: сборка из upstream (включая depot ver100, PR #295) через MSYS2/mingw
+    $msys = 'C:\msys64'
+    if (Test-Path "$msys\usr\bin\bash.exe") {
+        Write-Host "собираю ctool1cd.exe из upstream (MSYS2/mingw, depot ver100)..."
+        & "$msys\usr\bin\bash.exe" -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-boost mingw-w64-x86_64-make >/dev/null 2>&1; rm -rf /out; mkdir -p /out && bash /d/git/convert2edt/scripts/local/build-ctool1cd-mingw.sh" 2>&1 | Select-Object -Last 2
+        if (Test-Path "$msys\out\ctool1cd.exe") {
+            Copy-Item "$msys\out\*" $tools -Force
+        }
+    }
+}
+if (-not (Test-Path $ctool)) {
+    # fallback: релиз e8tools (БЕЗ depot ver100 — хранилища расширений локально не синканутся)
+    Write-Host "[WARN] собираю fallback: релиз beta2 без depot ver100 (расширения локально недоступны)" -ForegroundColor Yellow
     try {
         $zip = Join-Path $env:TEMP 'tool1cd-rel.zip'
         Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/e8tools/tool1cd/releases/download/v1.0.0-beta2/tool1cd-1.0.0.10.zip' -OutFile $zip

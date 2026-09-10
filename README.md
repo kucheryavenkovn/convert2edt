@@ -245,6 +245,31 @@ docker compose run --rm --publish 127.0.0.1:18080:8080 converter 1c-convert conf
 (реверс-инжиниринг, лицензия 1С не требуется); запись в хранилище не
 выполняется никогда.
 
+## Локальный запуск без Docker (Windows)
+
+`scripts/local/run-local.ps1` — тот же конвейер нативными инструментами:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\local\run-local.ps1
+```
+
+- использует установленные платформу 1С (ibcmd/1cv8), 1C:EDT (1cedtcli),
+  git и python; `ctool1cd.exe` при отсутствии **собирается из upstream
+  e8tools/tool1cd** через MSYS2/mingw (`scripts\local\build-ctool1cd-mingw.sh`,
+  включает depot ver100 → хранилища расширений работают и локально);
+  fallback — релиз beta2 (без ver100);
+- **Java для EDT**: EDT 2026.2 требует Java 25 — скрипт берёт Axiom Full
+  (machine `JAVA_HOME` или `components\axiom-jdk-full-*`) и prepends её
+  в PATH. Если в PATH первым стоит чужой JDK (например Liberica 11),
+  EDT-лаунчер молча показывает диалог о версии Java и «виснет» — из
+  machine PATH такой JDK следует убрать;
+- preflight проверяет локальный 1cedtcli; если он не отвечает —
+  автоматический docker-шим (`scripts\local\edt_docker_shim.py`,
+  EDT-шаг через образ), остальное остаётся нативным;
+- конфиг — `scripts\local\sync.local.toml` (пример рядом, Windows-пути);
+- предупреждение: EDT локальной машины может отличаться от EDT в образе —
+  для одного монорепо держите один канал (docker ИЛИ local).
+
 ## Быстрый старт
 
 ```powershell
