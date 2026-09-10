@@ -9,6 +9,9 @@ from .ibcmd import Ibcmd
 from .proc import info, run_tool
 
 
+VCS_DIRS = frozenset({".git"})
+
+
 class TempArea:
     def __init__(self, root: Path, name: str) -> None:
         self.root = root / name
@@ -61,6 +64,21 @@ class Pipeline:
         if self.cfg.clean_dst and path.exists():
             info(f"cleaning destination: {path}")
             shutil.rmtree(path, ignore_errors=True)
+
+    def clean_edt_project_dst(self, project: Path) -> None:
+        if not project.exists():
+            return
+        for item in project.iterdir():
+            if item.name in VCS_DIRS:
+                continue
+            if item.is_symlink() or item.is_file():
+                item.unlink()
+            else:
+                shutil.rmtree(item)
+        info(
+            f"EDT project destination cleared for full re-import "
+            f"(edtExport approach, VCS dirs preserved): {project}"
+        )
 
     def file_ib(self, path: Path) -> Source:
         return Source(FILE_IB, path=str(path))
@@ -158,8 +176,8 @@ class Pipeline:
         def steps() -> None:
             self.require_kind(detect_source(str(src_xml)), "xml")
             ws = self.workspace(dst_project)
-            self.clean_dst(dst_project)
             dst_project.mkdir(parents=True, exist_ok=True)
+            self.clean_edt_project_dst(dst_project)
             version = self.cfg.effective_v8_version()
             self.edt.import_project(ws, src_xml, dst_project, version=version)
             self.assert_edt_project(dst_project)
@@ -194,8 +212,8 @@ class Pipeline:
             self.ibcmd.config_export(temp.ibcmd_data, self.file_ib(ib), xml)
             self.assert_xml_dir(xml)
             ws = self.workspace(dst_project)
-            self.clean_dst(dst_project)
             dst_project.mkdir(parents=True, exist_ok=True)
+            self.clean_edt_project_dst(dst_project)
             version = self.cfg.effective_v8_version()
             self.edt.import_project(ws, xml, dst_project, version=version)
             self.assert_edt_project(dst_project)
@@ -251,8 +269,8 @@ class Pipeline:
             self.ibcmd.config_export(temp.ibcmd_data, source, xml)
             self.assert_xml_dir(xml)
             ws = self.workspace(dst_project)
-            self.clean_dst(dst_project)
             dst_project.mkdir(parents=True, exist_ok=True)
+            self.clean_edt_project_dst(dst_project)
             version = self.cfg.effective_v8_version()
             self.edt.import_project(ws, xml, dst_project, version=version)
             self.assert_edt_project(dst_project)

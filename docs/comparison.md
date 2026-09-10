@@ -19,6 +19,7 @@
 | `ibcmd` | + (`V8_CONVERT_TOOL=ibcmd`) | + (единственный инструмент) |
 | `1cedtcli` / ring | + (ring или edtcli) | + (только 1cedtcli) |
 | `--sync` incremental export | + | + (auto/force/off) |
+| Повторный import в существующий EDT-проект | не требуется | + (полная очистка + полный реимпорт — механика gitsync `edtExport`; инкрементный import EDT CLI не поддерживает, проверено) |
 | Расширения (CFE, ext2*) | + (`ext2edt`, `ext2cfe`, ...) | - |
 | EPF/ERF (dp2*) | + (`dp2edt`, `dp2epf`, ...) | - |
 | EDT validate | + (`edt-validate`) | - |
