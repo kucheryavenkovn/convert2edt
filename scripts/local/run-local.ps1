@@ -11,12 +11,26 @@
 # Примечание: локальный EDT может отличаться от EDT в docker-образе —
 # для одного монорепо держите один канал конвертации (docker ИЛИ local),
 # иначе EDT-проекты будут «прыгать» между версиями EDT.
+# ================== НАСТРОЙКИ (переопределяются переменными среды) ==================
+# CONVERT_PLATFORM_MASK — маска версии платформы 1С для автопоиска (по умолчанию "8.3.")
+# CONVERT_EDT_VERSION   — точная версия EDT для выбора компонента 1c-edt-<версия>*
+#                         (по умолчанию: новейший установленный компонент)
+# CONVERT_JAVA_HOME     — JDK/JRE для EDT (по умолчанию: machine JAVA_HOME или axiom-jdk-full-*)
+# CONVERT_V8_VERSION    — версия платформы для EDT import --version
+#                         (по умолчанию: детектированная платформа)
+# CONVERT_CTOOL1CD_REF  — коммит e8tools/tool1cd для сборки ctool1cd.exe
+#                         (по умолчанию: pinned 625ac1a с depot ver100)
+# Пример: $env:CONVERT_PLATFORM_MASK='8.3.'; .\run-local.ps1
+# ====================================================================================
 param(
     [string]$Config,
     [string[]]$CommandArgs,
-    [string]$PlatformMask = "8.3.",
+    [string]$PlatformMask = "",
     [switch]$DownloadOnly
 )
+if (-not $PlatformMask) {
+    $PlatformMask = if ($env:CONVERT_PLATFORM_MASK) { $env:CONVERT_PLATFORM_MASK } else { "8.3." }
+}
 if (-not $Config) { $Config = Join-Path $PSScriptRoot 'sync.local.toml' }
 if (-not $CommandArgs -or $CommandArgs.Count -eq 0) { $CommandArgs = @('sync-all', '--config', $Config) }
 
@@ -59,7 +73,10 @@ if (-not $platform) { Fail "платформа 1С не найдена в $($pla
 Ok "платформа: $($platform.Version) ($($platform.Bin))"
 
 # --- Java для EDT (EDT 2026.2 требует Java 25; берём Axiom Full, НЕ из PATH) --
-$javaHome = [Environment]::GetEnvironmentVariable('JAVA_HOME', 'Machine')
+$javaHome = $env:CONVERT_JAVA_HOME
+if (-not $javaHome -or -not (Test-Path (Join-Path $javaHome 'bin\javaw.exe'))) {
+    $javaHome = [Environment]::GetEnvironmentVariable('JAVA_HOME', 'Machine')
+}
 if (-not $javaHome -or -not (Test-Path (Join-Path $javaHome 'bin\javaw.exe'))) {
     $javaHome = Get-ChildItem "$env:ProgramW6432\1C\1CE\components" -Directory -Filter 'axiom-jdk-full-*' -ErrorAction SilentlyContinue |
         Sort-Object Name | Select-Object -Last 1 | ForEach-Object { $_.FullName }
@@ -76,11 +93,19 @@ if ($javaHome -and (Test-Path (Join-Path $javaHome 'bin\javaw.exe'))) {
 $edtRoot = "$env:ProgramW6432\1C\1CE\components"
 $edt = $null
 if (Test-Path $edtRoot) {
-    $edt = Get-ChildItem $edtRoot -Directory -Filter '1c-edt-*' |
-        Where-Object { Test-Path (Join-Path $_.FullName '1cedtcli.exe') } |
-        Sort-Object Name | Select-Object -Last 1
+    if ($env:CONVERT_EDT_VERSION) {
+        $edt = Get-ChildItem $edtRoot -Directory -Filter "1c-edt-$($env:CONVERT_EDT_VERSION)*" |
+            Where-Object { Test-Path (Join-Path $_.FullName '1cedtcli.exe') } |
+            Sort-Object Name | Select-Object -Last 1
+        if (-not $edt) { Write-Host "[WARN] компонент EDT '$($env:CONVERT_EDT_VERSION)' не найден — берём новейший" -ForegroundColor Yellow }
+    }
+    if (-not $edt) {
+        $edt = Get-ChildItem $edtRoot -Directory -Filter '1c-edt-*' |
+            Where-Object { Test-Path (Join-Path $_.FullName '1cedtcli.exe') } |
+            Sort-Object Name | Select-Object -Last 1
+    }
 }
-if (-not $edt) { Fail "1C:EDT не найдена в $edtRoot (ожидается components\1c-edt-*\1cedtcli.exe)" }
+if (-not $edt) { Fail "1C:EDT не найдена в $edtRoot (ожидается components\\1c-edt-*\\1cedtcli.exe)" }
 Ok "EDT: $($edt.Name)"
 
 # preflight локального 1cedtcli: известная проблема — Windows EDT 2026.2 CLI
@@ -149,7 +174,8 @@ Ok "ctool1cd: $ctool"
 if ($DownloadOnly) { Write-Host "`nИнструменты готовы." -ForegroundColor Cyan; exit 0 }
 
 # --- запуск -----------------------------------------------------------------
-$env:V8_VERSION = $platform.Version   # детектированная платформа -> EDT import --version
+# версия для EDT import --version: из CONVERT_V8_VERSION, иначе детектированная платформа
+if (-not $env:CONVERT_V8_VERSION) { $env:V8_VERSION = $platform.Version } else { $env:V8_VERSION = $env:CONVERT_V8_VERSION }
 if ($useShim) {
     $env:PATH = "$tools;$($platform.Bin);$($env:PATH)"
 } else {

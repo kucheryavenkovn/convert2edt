@@ -245,6 +245,40 @@ docker compose run --rm --publish 127.0.0.1:18080:8080 converter 1c-convert conf
 (реверс-инжиниринг, лицензия 1С не требуется); запись в хранилище не
 выполняется никогда.
 
+## Версии и переменные среды
+
+Ничего не захардкожено: версии детектируются или задаются переменными.
+
+**Docker-канал** (`.env` → compose):
+
+| Переменная | Что задаёт |
+|---|---|
+| `VENDOR_DIR` | каталог закрытых дистрибутивов 1С для сборки (named context, в образ не попадают; по умолчанию `./vendor`) |
+| `BASE_IMAGE` | родительский базовый образ (по умолчанию `debian:bookworm-slim`) |
+| `TOOL1CD_REF` | коммит e8tools/tool1cd — исходники ctool1cd качаются с GitHub при сборке (по умолчанию `625ac1a`, с depot ver100) |
+| `PLATFORM_VERSION` | метка образа (фактическая платформа — из `vendor/platform/`) |
+| `EDT_VERSION` | метка образа (фактический EDT — из `vendor/edt/`) |
+| `EDT_PLATFORM_SUPPORT` | какой platform-support оставить в образе (напр. `8.3.27`) |
+| `V8_VERSION` | версия для `1cedtcli import --version` (пусто = автодетект) |
+
+Итого о родительских проектах при сборке образа: базовый образ и исходники
+tool1cd приходят из публичных источников (`docker.io`, GitHub) и пинятся
+переменными; закрытые дистрибутивы 1С — только из локального `VENDOR_DIR`,
+из сети не качаются никогда. Локальный режим добавляет
+`CONVERT_CTOOL1CD_REF` (mingw-сборка ctool1cd.exe).
+
+**Локальный режим** (переменные среды перед `run-local.ps1/.cmd`, шапка скрипта):
+
+| Переменная | Что задаёт | По умолчанию |
+|---|---|---|
+| `CONVERT_PLATFORM_MASK` | маска платформы для автопоиска | `8.3.` |
+| `CONVERT_EDT_VERSION` | точная версия компонента EDT | новейший `1c-edt-*` |
+| `CONVERT_JAVA_HOME` | JDK/JRE для EDT | machine `JAVA_HOME` / axiom-jdk-full |
+| `CONVERT_V8_VERSION` | версия для EDT import | детектированная платформа |
+| `CONVERT_CTOOL1CD_REF` | коммит e8tools/tool1cd для сборки | `625ac1a` (ver100) |
+
+Пример: `$env:CONVERT_PLATFORM_MASK='8.3.'; $env:CONVERT_EDT_VERSION='2026.2.0'; .\run-local.ps1`
+
 ## Локальный запуск без Docker (Windows)
 
 `scripts/local/run-local.ps1` — тот же конвейер нативными инструментами:

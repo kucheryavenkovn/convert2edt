@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Сборка ctool1cd.exe (Windows x64, mingw, статический boost) из upstream
 # e8tools/tool1cd — включает depot ver100 (PR #295).
+# Пин коммита можно переопределить: CONVERT_CTOOL1CD_REF=<sha>
 set -eux
 export PATH="/mingw64/bin:$PATH"
-REF=625ac1a47b6ed63bba2848842daf1909813f84d4
+REF="${CONVERT_CTOOL1CD_REF:-625ac1a47b6ed63bba2848842daf1909813f84d4}"
 cd /tmp
 rm -rf tool1cd-src tool1cd-${REF}*
 curl -fsSL "https://github.com/e8tools/tool1cd/archive/${REF}.tar.gz" | tar -xz

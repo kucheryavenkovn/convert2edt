@@ -10,6 +10,8 @@ services:
       additional_contexts:
         distr: ${VENDOR_DIR:-./vendor}
       args:
+        BASE_IMAGE: ${BASE_IMAGE:-debian:bookworm-slim}
+        TOOL1CD_REF: ${TOOL1CD_REF:-625ac1a47b6ed63bba2848842daf1909813f84d4}
         PLATFORM_VERSION: ${PLATFORM_VERSION:-unknown}
         EDT_VERSION: ${EDT_VERSION:-unknown}
         EDT_PLATFORM_SUPPORT: ${EDT_PLATFORM_SUPPORT:-8.3.27}
