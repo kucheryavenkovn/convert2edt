@@ -11,7 +11,6 @@
 # Примечание: локальный EDT может отличаться от EDT в docker-образе —
 # для одного монорепо держите один канал конвертации (docker ИЛИ local),
 # иначе EDT-проекты будут «прыгать» между версиями EDT.
-[CmdletBinding()]
 param(
     [string]$Config,
     [string[]]$CommandArgs,
@@ -19,7 +18,7 @@ param(
     [switch]$DownloadOnly
 )
 if (-not $Config) { $Config = Join-Path $PSScriptRoot 'sync.local.toml' }
-if (-not $CommandArgs) { $CommandArgs = @('sync-all', '--config', $Config) }
+if (-not $CommandArgs -or $CommandArgs.Count -eq 0) { $CommandArgs = @('sync-all', '--config', $Config) }
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent   # корень проекта

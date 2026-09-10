@@ -1,0 +1,24 @@
+# Локальный (без Docker) конфиг синхронизации: пути указываются КАК ЕСТЬ
+# на этой Windows-машине (прямой слэш или обратный — оба работают).
+
+[worktree]
+path = "D:/git/convert2edt/output/local-git"
+
+[configuration]
+storage = "D:/git/convert2edt/fixtures/crs/cf"
+project = "configuration"
+
+# Расширения: работает и локально — tools\ctool1cd.exe собран из upstream
+# с depot ver100 (PR #295); см. scripts\local\build-ctool1cd-mingw.sh.
+[[extension]]
+name = "Расширение1"
+storage = "D:/git/convert2edt/fixtures/crs/ext/Расширение1"
+project = "extension"
+base_project = "configuration"
+
+[external]
+dir = "D:/git/convert2edt/fixtures/erf"
+sources = "external-src"
+# xml_dir = "D:/git/convert2edt/fixtures/dp-xml"
+# project = "external"
+# base_project = "configuration"
