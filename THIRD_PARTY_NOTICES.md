@@ -45,6 +45,23 @@ Copyright ShadobaAI. Изменения перечислены в заголов
 you may not use these files except in compliance with the License. You may
 obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
 
+## e8tools/tool1cd — GPL-3.0
+
+- URL: https://github.com/e8tools/tool1cd
+- Лицензия: GNU GPL v3 (копия: см. репозиторий upstream, файл COPYING)
+- Автор: Валерий Агеев (awa15), адаптация сообщества e8tools
+
+`ctool1cd` собирается из исходников upstream в builder-стадии Dockerfile
+(пин коммита — `ARG TOOL1CD_REF`) и используется как самостоятельный
+исполняемый файл для чтения хранилища конфигурации 1С
+(`1cv8ddb.1CD`): выгрузка `.cf` заданной версии (`-drc`) и экспорт таблиц
+`VERSIONS`/`USERS` (`-ex`). Код tool1cd в код проекта не включается;
+модификация — только удаление GUI-поддиректории (`gtool1cd`) из конфигурации
+сборки в builder-стадии. Образ с `ctool1cd` предназначен для внутреннего
+использования; при распространении образа действуют условия GPL-3
+(исходники tool1cd доступны по URL выше, пин — в label
+`onec.converter.tool1cd-ref`).
+
 ## Дистрибутивы 1С
 
 `vendor/` (не в git) содержит только официальные дистрибутивы

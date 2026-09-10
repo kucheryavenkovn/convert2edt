@@ -78,6 +78,36 @@ def cmd_detect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_storage_info(args: argparse.Namespace) -> int:
+    from .pipeline import Pipeline
+    from .tool1cd import Tool1CD, locate_storage_db, prepare_local_copy
+
+    cfg = Config()
+    pipeline = Pipeline(cfg)
+    try:
+        db = locate_storage_db(args.storage)
+        temp = pipeline.temp("storage-info")
+        local_db = prepare_local_copy(db, temp.root)
+        tool = Tool1CD(cfg)
+        versions = tool.versions(local_db, temp.root / "tables")
+        users = tool.users(local_db, temp.root / "tables")
+    except (ValueError, RuntimeError) as error:
+        fail(str(error))
+    print(f"storage : {db}")
+    print(f"versions: {len(versions)} (#{versions[0].number}..#{versions[-1].number})")
+    print("users   :")
+    for userid, name in sorted(users.items(), key=lambda kv: kv[1]):
+        print(f"  {name}  ({userid})")
+    shown = versions[-args.limit :] if args.limit > 0 else versions
+    print(f"last versions (up to {args.limit}):")
+    for v in reversed(shown):
+        author = users.get(v.userid, v.userid)
+        comment = (v.comment or "").replace("\n", " ")
+        print(f"  #{v.number}  {v.date}  {author}  {comment}")
+    pipeline.finish_temp()
+    return 0
+
+
 def make_handler(build):
     def handler(args: argparse.Namespace) -> int:
         cfg = Config()
@@ -185,6 +215,72 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("dst", type=path_arg)
     p.set_defaults(
         func=make_handler(lambda pl, a: pl.ib_to_edt(a.src, a.dst))
+    )
+
+    p = sub.add_parser(
+        "storage-info",
+        help="1C configuration storage: versions, users, dates, comments",
+    )
+    p.add_argument("storage")
+    p.add_argument("--limit", type=int, default=10, help="last N versions to show")
+    p.set_defaults(func=cmd_storage_info)
+
+    p = sub.add_parser(
+        "storage-to-cf",
+        help="configuration storage -> 1C configuration file (*.cf) of a given version",
+    )
+    p.add_argument("storage")
+    p.add_argument("dst", type=path_arg)
+    p.add_argument("--version", type=int, default=0, help="0 = latest")
+    p.set_defaults(
+        func=make_handler(lambda pl, a: pl.storage_to_cf(a.storage, a.dst, a.version))
+    )
+
+    p = sub.add_parser(
+        "storage-to-xml",
+        help="configuration storage -> 1C:Designer XML files of a given version",
+    )
+    p.add_argument("storage")
+    p.add_argument("dst", type=path_arg)
+    p.add_argument("--version", type=int, default=0, help="0 = latest")
+    p.set_defaults(
+        func=make_handler(lambda pl, a: pl.storage_to_xml(a.storage, a.dst, a.version))
+    )
+
+    p = sub.add_parser(
+        "storage-to-edt",
+        help="configuration storage -> 1C:EDT project of a given version",
+    )
+    p.add_argument("storage")
+    p.add_argument("dst", type=path_arg)
+    p.add_argument("--version", type=int, default=0, help="0 = latest")
+    p.set_defaults(
+        func=make_handler(lambda pl, a: pl.storage_to_edt(a.storage, a.dst, a.version))
+    )
+
+    p = sub.add_parser(
+        "storage-sync",
+        help="configuration storage -> git history (1C:EDT project, 1 version = 1 commit)",
+    )
+    p.add_argument("storage")
+    p.add_argument("worktree", type=path_arg, help="git worktree directory")
+    p.add_argument("--project-name", default="configuration")
+    p.add_argument("--from-version", type=int, default=0, help="0 = resume after synced")
+    p.add_argument("--to-version", type=int, default=0, help="0 = latest")
+    p.add_argument("--authors", type=path_arg, default=None, help="file: StorageName=Git Name <email>")
+    p.add_argument("--domain", default="storage.local", help="email domain for unmapped authors")
+    p.set_defaults(
+        func=make_handler(
+            lambda pl, a: pl.storage_sync(
+                a.storage,
+                a.worktree,
+                project_name=a.project_name,
+                version_from=a.from_version,
+                version_to=a.to_version,
+                authors_file=a.authors,
+                domain=a.domain,
+            )
+        )
     )
 
     return parser

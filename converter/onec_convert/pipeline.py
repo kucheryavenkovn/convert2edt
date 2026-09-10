@@ -1,4 +1,8 @@
+import json
+import os
+import re
 import shutil
+import subprocess
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,6 +14,107 @@ from .proc import info, run_tool
 
 
 VCS_DIRS = frozenset({".git"})
+
+SYNC_COMMITTER_NAME = "1c-convert storage-sync"
+SYNC_COMMITTER_EMAIL = "1c-convert@storage.local"
+STATE_FILE = ".storage-sync.json"
+
+
+def load_authors(path: Path | None) -> dict[str, str]:
+    if not path:
+        return {}
+    authors: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise ValueError(f"invalid authors mapping line: {line}")
+        key, value = line.split("=", 1)
+        authors[key.strip()] = value.strip()
+    return authors
+
+
+def resolve_author(version, users: dict[str, str], authors: dict[str, str], domain: str) -> str:
+    name = users.get(version.userid, "") or f"user-{version.userid[:8]}"
+    if name in authors:
+        return authors[name]
+    slug = re.sub(r"[^0-9A-Za-z._-]+", "-", name).strip("-")
+    if not re.search(r"[0-9A-Za-z]", slug):
+        slug = version.userid.replace("-", "")[:12]
+    if not slug:
+        slug = "unknown"
+    return f"{name} <{slug}@{domain}>"
+
+
+def read_state(path: Path) -> dict:
+    if path.is_file():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+    return {}
+
+
+def write_state(path: Path, state: dict) -> None:
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def run_git(worktree: Path, *args: str, env_extra: dict | None = None) -> str:
+    env = {**os.environ, **(env_extra or {})}
+    result = subprocess.run(
+        ["git", "-C", str(worktree), *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="replace",
+        env=env,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"git {' '.join(args)} failed: {(result.stderr or result.stdout or '').strip()}"
+        )
+    return (result.stdout or "").strip()
+
+
+def ensure_git_repo(worktree: Path) -> None:
+    worktree.mkdir(parents=True, exist_ok=True)
+    if not (worktree / ".git").exists():
+        run_git(worktree, "init", "-q")
+    gitignore = worktree / ".gitignore"
+    if gitignore.is_file():
+        content = gitignore.read_text(encoding="utf-8")
+    else:
+        content = ""
+    if STATE_FILE not in content.splitlines():
+        lines = [line for line in content.splitlines() if line.strip()]
+        lines.append(STATE_FILE)
+        gitignore.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def commit_version(worktree: Path, project_name: str, version, author: str) -> bool:
+    run_git(worktree, "add", "-A", "--", project_name, ".gitignore")
+    staged = run_git(worktree, "diff", "--cached", "--name-only")
+    if not staged:
+        info(f"version {version.number}: no changes, commit skipped")
+        return False
+    message = f"Версия {version.number}: {(version.comment or '').strip() or 'без комментария'}"
+    dates = {"GIT_AUTHOR_DATE": version.date, "GIT_COMMITTER_DATE": version.date}
+    run_git(
+        worktree,
+        "-c",
+        f"user.name={SYNC_COMMITTER_NAME}",
+        "-c",
+        f"user.email={SYNC_COMMITTER_EMAIL}",
+        "commit",
+        "-q",
+        f"--author={author}",
+        "-m",
+        message,
+        env_extra=dates,
+    )
+    info(f"version {version.number}: committed as {author}")
+    return True
 
 
 class TempArea:
@@ -129,6 +234,10 @@ class Pipeline:
         return source
 
     def run(self, name: str, steps) -> None:
+        saved_temp = self._temp
+        saved_workspaces = self._workspaces
+        self._temp = None
+        self._workspaces = []
         failed = False
         try:
             steps()
@@ -137,6 +246,8 @@ class Pipeline:
             raise
         finally:
             self.finish_temp(failed=failed)
+            self._temp = saved_temp
+            self._workspaces = saved_workspaces
 
     def cf_to_xml(self, src_cf: Path, dst_xml: Path, sync: str = "auto") -> None:
         def steps() -> None:
@@ -279,6 +390,87 @@ class Pipeline:
             info(f"result: {dst_project}")
 
         self.run("ib-to-edt", steps)
+
+    def storage_prepare(self, storage: str, name: str):
+        from .tool1cd import Tool1CD, locate_storage_db, prepare_local_copy
+
+        db = locate_storage_db(storage)
+        temp = self.temp(name)
+        local_db = prepare_local_copy(db, temp.root)
+        tool = Tool1CD(self.cfg)
+        versions = tool.versions(local_db, temp.root / "tables")
+        users = tool.users(local_db, temp.root / "tables")
+        if not versions:
+            raise RuntimeError(f"no versions found in storage {storage}")
+        info(f"storage: {db} ({len(versions)} versions, {len(users)} users)")
+        return temp, tool, local_db, versions, users
+
+    def storage_to_cf(self, storage: str, dst_cf: Path, version: int = 0) -> None:
+        def steps() -> None:
+            temp, tool, local_db, versions, _ = self.storage_prepare(storage, "storage-to-cf")
+            number = versions[-1].number if version == 0 else version
+            info(f"dumping configuration of version {number}...")
+            tool.dump_config(local_db, number, dst_cf)
+
+        self.run("storage-to-cf", steps)
+
+    def storage_to_xml(self, storage: str, dst_xml: Path, version: int = 0) -> None:
+        def steps() -> None:
+            temp, tool, local_db, versions, _ = self.storage_prepare(storage, "storage-to-xml")
+            number = versions[-1].number if version == 0 else version
+            info(f"dumping configuration of version {number}...")
+            cf = temp.root / f"ver-{number}.cf"
+            tool.dump_config(local_db, number, cf)
+            self.cf_to_xml(cf, dst_xml)
+
+        self.run("storage-to-xml", steps)
+
+    def storage_to_edt(self, storage: str, dst_project: Path, version: int = 0) -> None:
+        def steps() -> None:
+            temp, tool, local_db, versions, _ = self.storage_prepare(storage, "storage-to-edt")
+            number = versions[-1].number if version == 0 else version
+            info(f"dumping configuration of version {number}...")
+            cf = temp.root / f"ver-{number}.cf"
+            tool.dump_config(local_db, number, cf)
+            self.cf_to_edt(cf, dst_project)
+
+        self.run("storage-to-edt", steps)
+
+    def storage_sync(
+        self,
+        storage: str,
+        worktree: Path,
+        project_name: str = "configuration",
+        version_from: int = 0,
+        version_to: int = 0,
+        authors_file: Path | None = None,
+        domain: str = "storage.local",
+    ) -> None:
+        def steps() -> None:
+            temp, tool, local_db, versions, users = self.storage_prepare(
+                storage, "storage-sync"
+            )
+            authors = load_authors(authors_file)
+            state_file = worktree / ".storage-sync.json"
+            state = read_state(state_file)
+            last_done = state.get("last_version", 0)
+            start = version_from or (last_done + 1)
+            end = version_to or versions[-1].number
+            todo = [v for v in versions if start <= v.number <= end]
+            info(f"syncing versions {start}..{end} ({len(todo)} to do, last done {last_done})")
+            project_dir = worktree / project_name
+            ensure_git_repo(worktree)
+            for v in todo:
+                info(f"--- version {v.number}: {v.comment or '(no comment)'}")
+                cf = temp.root / f"ver-{v.number}.cf"
+                tool.dump_config(local_db, v.number, cf)
+                self.cf_to_edt(cf, project_dir)
+                author = resolve_author(v, users, authors, domain)
+                commit_version(worktree, project_name, v, author)
+                write_state(state_file, {"last_version": v.number})
+            info(f"sync done: {todo[-1].number if todo else last_done} -> {worktree}")
+
+        self.run("storage-sync", steps)
 
 
 def platform_version() -> str:

@@ -11,6 +11,9 @@
 # (compose: build.additional_contexts.vendor=./vendor):
 #   vendor/platform/ — 1C:Enterprise 8.3 server (deb64_*.zip or server64_*.zip), ibcmd
 #   vendor/edt/      — 1C:EDT offline (1c_edt_distr_offline_*_linux_x86_64.tar.gz)
+#
+# ctool1cd (configuration storage reader, GPL-3) is built from the public
+# upstream source pinned by TOOL1CD_REF — no closed distribution required.
 
 ARG BASE_IMAGE=debian:bookworm-slim
 
@@ -78,23 +81,68 @@ RUN --mount=type=bind,from=distr,source=.,target=/distr,readonly \
       \) -prune -exec rm -rf {} + \
   && rm -rf /tmp/* /var/tmp/*
 
+# --------------------------------------------------------------- tool1cd builder
+# ctool1cd reads the 1C configuration storage (1cv8ddb.1CD) directly,
+# without the 1C platform: dumps a .cf of any storage version (-drc) and
+# exports storage tables (VERSIONS/USERS -> version author/date/comment).
+# Source: https://github.com/e8tools/tool1cd (GPL-3, see THIRD_PARTY_NOTICES.md).
+FROM runtime-base AS tool1cd-builder
+ARG TOOL1CD_REF=f0361ad849076507684fe77bac7d59569a7ba244
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      cmake \
+      curl \
+      g++ \
+      libboost-filesystem-dev \
+      libboost-regex-dev \
+      libboost-system-dev \
+      make \
+      zlib1g-dev \
+  && rm -rf /var/lib/apt/lists/* \
+  && curl -fsSL "https://github.com/e8tools/tool1cd/archive/${TOOL1CD_REF}.tar.gz" \
+     | tar -xz -C /tmp \
+  && cd /tmp/tool1cd-* \
+  && sed -i '/gtool1cd/d' CMakeLists.txt \
+  && mkdir build && cd build \
+  && cmake .. -DCMAKE_BUILD_TYPE=Release > /dev/null \
+  && make -j"$(nproc)" > /dev/null 2>&1 \
+  && mkdir -p /out/bin /out/lib \
+  && cp bin/ctool1cd /out/bin/ \
+  && cp lib/libtool1cd.so /out/lib/ \
+  && rm -rf /tmp/tool1cd-* /var/lib/apt/lists/*
+
 # ------------------------------------------------------------------------ final
 FROM runtime-base AS converter
 ARG PLATFORM_VERSION=unknown
 ARG EDT_VERSION=unknown
+ARG TOOL1CD_REF=f0361ad849076507684fe77bac7d59569a7ba244
 ARG REVISION=r1
 
 LABEL org.opencontainers.image.title="1c-converter" \
-      org.opencontainers.image.description="1C configuration converter: ibcmd + 1cedtcli + thin orchestration (based on approaches from arkuznetsov/1CFilesConverter and ShadobaAI/kafka-tools)" \
+      org.opencontainers.image.description="1C configuration converter: ibcmd + 1cedtcli + ctool1cd (storage) + thin orchestration (based on approaches from arkuznetsov/1CFilesConverter and ShadobaAI/kafka-tools)" \
       org.opencontainers.image.version="${PLATFORM_VERSION}+edt${EDT_VERSION}" \
       onec.converter.platform-version="${PLATFORM_VERSION}" \
       onec.converter.edt-version="${EDT_VERSION}" \
+      onec.converter.tool1cd-ref="${TOOL1CD_REF}" \
       onec.converter.revision="${REVISION}"
 
 COPY --from=platform-installer /opt/1cv8 /opt/1cv8
 COPY --from=edt-installer /opt/1C/1CE /opt/1C/1CE
+COPY --from=tool1cd-builder /out/bin/ctool1cd /usr/local/bin/ctool1cd
+COPY --from=tool1cd-builder /out/lib/libtool1cd.so /usr/local/lib/libtool1cd.so
 
-RUN find /opt/1cv8 \( \
+# git: storage-sync commits; boost/zlib: ctool1cd runtime (icu comes via platform deps)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+      git \
+      libboost-filesystem1.74.0 \
+      libboost-regex1.74.0 \
+      zlib1g \
+  && rm -rf /var/lib/apt/lists/* \
+  && ldconfig \
+  && find /opt/1cv8 \( \
         -type d -iname doc -o \
         -type d -iname docs -o \
         -type d -iname help -o \

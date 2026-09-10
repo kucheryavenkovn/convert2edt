@@ -40,6 +40,8 @@ services:
       - ./output:/work/output
       - ./cache:/work/cache
       - ./tests:/work/tests:ro
+      # 1C configuration storage (read-only); copied to cache/temp before use
+      - ${STORAGE_HOST_PATH:-./storage}:/storage:ro
       # 1C license files (*.lic) — required by the platform for some operations.
       # Copy your license files into ./licenses (directory is gitignored).
       - ./licenses:/var/1C/licenses

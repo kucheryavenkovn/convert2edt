@@ -9,6 +9,7 @@ licenses/
 input/
 output/
 cache/
+storage/
 
 # Секреты и окружение
 .env

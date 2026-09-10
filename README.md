@@ -41,6 +41,11 @@
 | `edt-to-xml` | EDT-проект → XML | напрямую `1cedtcli` (без ИБ) |
 | `ib-to-xml` | файловая ИБ → XML | `ibcmd config export` |
 | `ib-to-edt` | файловая ИБ → EDT | XML → EDT |
+| `storage-info` | хранилище: версии, авторы, даты, комментарии | `ctool1cd` (без платформы) |
+| `storage-to-cf` | хранилище → *.cf нужной версии | `ctool1cd -drc N` |
+| `storage-to-xml` | хранилище → XML версии | cf → temp IB → XML |
+| `storage-to-edt` | хранилище → EDT версии | cf → temp IB → XML → EDT |
+| `storage-sync` | хранилище → git-история (1 версия = 1 коммит) | весь конвейер + git |
 | `info` | версии ibcmd / 1cedtcli / платформы | |
 | `detect` | определить тип источника | |
 
@@ -68,14 +73,24 @@ EDT workspace создаётся заново на каждый запуск —
 
 ```
 для каждой версии N хранилища:
-    выгрузка XML версии N                            # 1cv8 DESIGNER (gitsync) — вне этого проекта
-    1c-convert xml-to-edt <xml-N> <worktree>/project # очистка + полный реимпорт
-    git add / git commit                             # автор/дата/комментарий версии N
+    1c-convert storage-sync <storage> <worktree>     # всё ниже — внутри
+        ctool1cd -drc N            → ver-N.cf        (прямо из 1cv8ddb.1CD, без платформы)
+        ibcmd: cf → temp IB → XML                   (без лицензии)
+        1cedtcli: XML → EDT (очистка + полный реимпорт)
+        git commit: автор/дата/комментарий версии N (из таблиц VERSIONS/USERS)
 ```
 
-Шаг чтения хранилища конфигурации `ibcmd` выполнить не может (см.
-«Ограничения»): для него остаётся gitsync-стек (legacy) или отдельный
-extractor-профиль.
+`storage-sync` возобновляемый: состояние (последняя синхронизированная
+версия) хранится в `<worktree>/.storage-sync.json`; повторный запуск — 0
+коммитов. Проект кладётся в `<worktree>/<project-name>` (по умолчанию
+`configuration`). Сопоставление авторов — файл `--authors` формата
+`ИмяИзХранилища=Git Имя <email>`; без мапинга — `Имя <slug@--domain>`.
+
+Хранилище монтируется read-only (`STORAGE_HOST_PATH` в `.env` → `/storage`)
+и перед обработкой копируется в `cache/tmp` (требуется `data/pack` рядом
+с БД и локальный доступ к файлу). `ctool1cd` читает формат напрямую
+(реверс-инжиниринг, лицензия 1С не требуется); запись в хранилище не
+выполняется никогда.
 
 ## Быстрый старт
 
@@ -94,6 +109,10 @@ docker compose run --rm converter bash /work/tests/smoke/run_smoke.sh /work/inpu
 # 4. конвертация
 docker compose run --rm converter `
     cf-to-edt /work/input/1Cv8.cf /work/output/configuration
+
+# 5. хранилище → git (в .env: STORAGE_HOST_PATH=E:/crs/gitsync)
+docker compose run --rm converter storage-info /storage
+docker compose run --rm converter storage-sync /storage /work/output/storage-git
 ```
 
 Прямой вызов инструментов образа:
@@ -149,9 +168,12 @@ Credentials ИБ/СУБД передаются через environment (`V8_IB_PW
 
 ## Ограничения
 
-- Хранилище конфигураций (crs) `ibcmd` не читает (проверено по `ibcmd help`
-  8.3.27): забор версий из хранилища возможен только через 1cv8 DESIGNER
-  (gitsync-стек в `legacy/` или отдельный extractor-профиль).
+- Хранилище конфигураций читается `ctool1cd` напрямую из `1cv8ddb.1CD`
+  (реверс-инжиниринг формата, GPL-3): покрывающая практика сообщества
+  многолетняя, но это не официальный инструмент 1С. Официальный путь
+  (gitsync + 1cv8 DESIGNER + лицензия) сохранён в `legacy/`.
+- `ibcmd` хранилище читать не умеет (проверено по `ibcmd help` 8.3.27),
+  поэтому extractor построен на `ctool1cd`.
 - Инкрементальный import XML→EDT в существующий проект EDT CLI не
   поддерживает (ошибка перезаписи бинарных ресурсов, exit code 0): по каждой
   версии выполняется полная очистка каталога и полный реимпорт — механика
