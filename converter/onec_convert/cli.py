@@ -274,6 +274,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="sync a configuration extension storage (extension name)",
     )
+    p.add_argument(
+        "--base-project",
+        default="",
+        help="base EDT project name for extension (--base-project-name)",
+    )
     p.set_defaults(
         func=make_handler(
             lambda pl, a: pl.storage_sync(
@@ -285,6 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
                 authors_file=a.authors,
                 domain=a.domain,
                 extension=a.extension,
+                base_project=a.base_project,
             )
         )
     )
@@ -295,8 +301,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("src", type=path_arg)
     p.add_argument("dst", type=path_arg)
+    p.add_argument(
+        "--base-project",
+        default="",
+        help="base EDT project name for external project (--base-project-name)",
+    )
     p.set_defaults(
-        func=make_handler(lambda pl, a: pl.dp_xml_to_edt(a.src, a.dst))
+        func=make_handler(lambda pl, a: pl.dp_xml_to_edt(a.src, a.dst, base_project=a.base_project))
     )
 
     p = sub.add_parser(
@@ -322,6 +333,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", type=path_arg, default=Path("/work/sync.toml"))
     p.set_defaults(func=cmd_sync_all)
 
+    p = sub.add_parser(
+        "init-config",
+        help="интерактивный мастер создания sync.toml",
+    )
+    p.add_argument("--out", type=path_arg, default=Path("/work/sync.toml"))
+    p.set_defaults(func=cmd_init_config)
+
+    p = sub.add_parser(
+        "config-server",
+        help="веб-помощник создания sync.toml (форма в браузере)",
+    )
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, default=8080)
+    p.add_argument("--out", type=path_arg, default=Path("/work/sync.toml"))
+    p.set_defaults(func=cmd_config_server)
+
     return parser
 
 
@@ -333,6 +360,28 @@ def cmd_sync_all(args: argparse.Namespace) -> int:
         sync_all(cfg, args.config)
     except (SyncConfigError, ValueError, RuntimeError) as error:
         fail(str(error))
+    return 0
+
+
+def cmd_init_config(args: argparse.Namespace) -> int:
+    from .initconfig import render_toml, wizard
+
+    data = wizard()
+    toml = render_toml(data)
+    print("\n" + toml)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(toml, encoding="utf-8")
+    print(f"\n[OK] записано: {args.out}")
+    return 0
+
+
+def cmd_config_server(args: argparse.Namespace) -> int:
+    from .initconfig import serve
+
+    try:
+        serve(args.host, args.port, args.out)
+    except OSError as error:
+        fail(f"config-server: {error}")
     return 0
 
 

@@ -11,6 +11,7 @@ ERROR_PATTERNS = [
     re.compile(r"(?iu)\bошибк"),
     re.compile(r"(?iu)ошибок\s*:\s*[1-9]"),
     re.compile(r"Не удалось"),
+    re.compile(r"Не найдено открытого проекта"),
     re.compile(r"java\.lang\."),
     re.compile(r"CoreException"),
 ]
@@ -36,7 +37,12 @@ class EdtCli:
         ]
 
     def import_project(
-        self, ws: Path, xml_dir: Path, project: Path, version: str = ""
+        self,
+        ws: Path,
+        xml_dir: Path,
+        project: Path,
+        version: str = "",
+        base_project_name: str = "",
     ) -> None:
         cmd = [
             *self._base(ws),
@@ -49,7 +55,45 @@ class EdtCli:
         ]
         if version:
             cmd.extend(["--version", version])
+        if base_project_name:
+            cmd.extend(["--base-project-name", base_project_name])
         self._run(cmd, ws)
+
+    def import_existing(self, ws: Path, project: Path) -> None:
+        self._run(
+            [
+                *self._base(ws),
+                "-command",
+                "import",
+                "--project",
+                str(project),
+            ],
+            ws,
+        )
+
+    def import_with_base(
+        self,
+        ws: Path,
+        base_project_dir: Path,
+        xml_dir: Path,
+        project: Path,
+        version: str = "",
+        base_project_name: str = "",
+    ) -> None:
+        cmd = f'import --project "{project}" --configuration-files "{xml_dir}"'
+        if version:
+            cmd += f" --version {version}"
+        if base_project_name:
+            cmd += f' --base-project-name "{base_project_name}"'
+        script = ws / "import.script"
+        script.write_text(
+            f'import --project "{base_project_dir}"\n' + cmd + "\n",
+            encoding="utf-8",
+        )
+        try:
+            self._run([*self._base(ws), "-file", str(script)], ws)
+        finally:
+            script.unlink(missing_ok=True)
     def export_project(self, ws: Path, project: Path, xml_dir: Path) -> None:
         self._run(
             [

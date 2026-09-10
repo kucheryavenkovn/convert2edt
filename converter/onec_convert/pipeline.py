@@ -233,12 +233,28 @@ class Pipeline:
         if not path.is_file() or path.stat().st_size == 0:
             raise RuntimeError(f"result file was not created or is empty: {path}")
 
-    def edt_import_flow(self, xml: Path, dst_project: Path) -> None:
+    def edt_import_flow(
+        self,
+        xml: Path,
+        dst_project: Path,
+        base_project_name: str = "",
+        base_project_dir: Path | None = None,
+    ) -> None:
         ws = self.workspace(dst_project)
         dst_project.mkdir(parents=True, exist_ok=True)
         self.clean_edt_project_dst(dst_project)
         version = self.cfg.effective_v8_version()
-        self.edt.import_project(ws, xml, dst_project, version=version)
+        if base_project_dir is not None and base_project_dir.is_dir():
+            self.edt.import_with_base(
+                ws,
+                base_project_dir,
+                xml,
+                dst_project,
+                version=version,
+                base_project_name=base_project_name,
+            )
+        else:
+            self.edt.import_project(ws, xml, dst_project, version=version)
         self.assert_edt_project(dst_project)
         self.edt.clean_up_source(ws, dst_project)
         self.assert_edt_project(dst_project)
@@ -457,6 +473,7 @@ class Pipeline:
         authors_file: Path | None = None,
         domain: str = "storage.local",
         extension: str = "",
+        base_project: str = "",
     ) -> None:
         def steps() -> None:
             temp, tool, local_db, versions, users = self.storage_prepare(
@@ -475,13 +492,26 @@ class Pipeline:
             )
             project_dir = worktree / project_name
             ensure_git_repo(worktree)
+            base_dir = worktree / base_project if base_project else None
+            if base_project:
+                if base_dir is None or not base_dir.is_dir():
+                    raise ValueError(
+                        f"base project '{base_project}' not found in {worktree}; "
+                        "sync the configuration project first"
+                    )
+                info(f"base project: {base_project}")
             for v in todo:
                 info(f"--- version {v.number}: {v.comment or '(no comment)'}")
                 cf = temp.root / f"ver-{v.number}.cf"
                 tool.dump_config(local_db, v.number, cf)
                 if extension:
                     xml = self.extension_to_xml(cf, extension, temp, None, v.number)
-                    self.edt_import_flow(xml, project_dir)
+                    self.edt_import_flow(
+                        xml,
+                        project_dir,
+                        base_project_name=base_project,
+                        base_project_dir=base_dir,
+                    )
                 else:
                     self.cf_to_edt(cf, project_dir)
                 author = resolve_author(v, users, authors, domain)
@@ -511,12 +541,25 @@ class Pipeline:
         return xml
 
 
-    def dp_xml_to_edt(self, src_xml: Path, dst_project: Path) -> None:
+    def dp_xml_to_edt(
+        self,
+        src_xml: Path,
+        dst_project: Path,
+        base_project: str = "",
+    ) -> None:
         def steps() -> None:
             if not src_xml.is_dir():
                 raise ValueError(f"directory with external dp XML expected: {src_xml}")
+            base_dir = None
+            base_name = ""
+            if base_project:
+                base_dir = dst_project.parent / base_project
+                if not base_dir.is_dir():
+                    raise ValueError(
+                        f"base project '{base_project}' not found next to {dst_project}"
+                    )
+                base_name = base_project
             ws = self.workspace(dst_project)
-            dst_project.mkdir(parents=True, exist_ok=True)
             version = self.cfg.effective_v8_version()
             if version:
                 parts = version.split(".")
@@ -524,7 +567,18 @@ class Pipeline:
                     version = ".".join(parts[:3])
             if not version:
                 version = "8.3.27"
-            self.edt.import_project(ws, src_xml, dst_project, version=version)
+            dst_project.mkdir(parents=True, exist_ok=True)
+            if base_dir is not None and base_dir.is_dir():
+                self.edt.import_with_base(
+                    ws,
+                    base_dir,
+                    src_xml,
+                    dst_project,
+                    version=version,
+                    base_project_name=base_name,
+                )
+            else:
+                self.edt.import_project(ws, src_xml, dst_project, version=version)
             self.assert_edt_external_project(dst_project)
             info(f"result: {dst_project}")
 

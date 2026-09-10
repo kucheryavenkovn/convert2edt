@@ -79,6 +79,7 @@ def sync_all(cfg: Config, config_path: Path) -> None:
             authors_file=Path(authors_file) if authors_file else None,
             domain=domain,
             extension=ext.get("name") or "",
+            base_project=ext.get("base_project") or "",
         )
 
     external = data.get("external") or {}
@@ -88,7 +89,11 @@ def sync_all(cfg: Config, config_path: Path) -> None:
         commit_external(worktree, [sources], "Внешние отчёты и обработки: обновление (v8unpack)")
     if external.get("xml_dir"):
         project = external.get("project") or "external"
-        pipeline.dp_xml_to_edt(Path(external["xml_dir"]), worktree / project)
+        pipeline.dp_xml_to_edt(
+            Path(external["xml_dir"]),
+            worktree / project,
+            base_project=external.get("base_project") or "",
+        )
         commit_external(worktree, [project], "Внешние отчёты и обработки: обновление (EDT)")
 
     info(f"sync-all done -> {worktree}")

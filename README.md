@@ -225,11 +225,30 @@ Designer-XML** внешних обработок средствами `ibcmd + 1
 
 Единый конфиг путей для `sync-all` (копия `sync.toml.example`):
 `[worktree]` — git-репозиторий монорепо; `[configuration]` — хранилище
-конфигурации; `[[extension]]` — хранилища расширений (сколько нужно);
-`[external]` — каталог с бинарными .erf/.epf (`dir` → `external-src`) и
-опционально каталог XML (`xml_dir` → EDT-проект `external`).
-Пути указываются внутри контейнера (см. монтирования в `compose.yaml`;
-fixtures смонтированы в `/work/fixtures`).
+конфигурации (`project` = имя каталога в worktree **и** имя EDT-проекта —
+можно любое); `[[extension]]` — хранилища расширений (сколько нужно), у
+каждого может быть `base_project` — базовый EDT-проект (обычно проект
+конфигурации); `[external]` — каталог с бинарными .erf/.epf (`dir` →
+`external-src`), опционально каталог XML (`xml_dir` → EDT-проект, тоже с
+`base_project`). Пути указываются внутри контейнера (см. монтирования в
+`compose.yaml`; fixtures смонтированы в `/work/fixtures`).
+
+Механика `base_project`: обе import-команды (базовый проект + расширение
+с `--base-project-name`) выполняются одним EDT-скриптом в одной сессии —
+отдельными вызовами EDT 2026.1 базу «не видит» («Не найдено открытого
+проекта»). Базовый проект должен уже существовать в worktree (синкните
+конфигурацию первой секцией — `sync-all` делает это по порядку).
+
+### Помощники создания конфига
+
+```bash
+# CLI-мастер (интерактивный опрос, пишет /work/sync.toml)
+docker compose run --rm -T converter 1c-convert init-config
+
+# Веб-помощник: форма в браузере, предпросмотр и сохранение sync.toml
+docker compose run --rm --publish 127.0.0.1:18080:8080 converter 1c-convert config-server
+# → http://127.0.0.1:18080
+```
 
 Хранилище монтируется read-only (`STORAGE_HOST_PATH` в `.env` → `/storage`)
 и перед обработкой копируется в `cache/tmp` (требуется `data/pack` рядом

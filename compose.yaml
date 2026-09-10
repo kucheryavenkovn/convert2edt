@@ -15,6 +15,10 @@ services:
         EDT_PLATFORM_SUPPORT: ${EDT_PLATFORM_SUPPORT:-8.3.27}
         REVISION: ${REVISION:-r1}
     init: true
+    # порт веб-помощника конфига: docker compose run --rm converter config-server
+    # (публикуется только пока жив контейнер)
+    ports:
+      - "127.0.0.1:8080:8080"
     environment:
       TZ: ${TZ:-Europe/Moscow}
 
@@ -42,7 +46,8 @@ services:
       - ./tests:/work/tests:ro
       # fixtures: тестовые хранилища/обработки и sync-конфиг (см. sync.toml.example)
       - ./fixtures:/work/fixtures:ro
-      - ./sync.toml:/work/sync.toml:ro
+      # sync.toml: rw — его пишет init-config/config-server
+      - ./sync.toml:/work/sync.toml
       # 1C configuration storage (read-only); copied to cache/temp before use
       - ${STORAGE_HOST_PATH:-./storage}:/storage:ro
       # configuration EXTENSION storage (optional, read-only)
