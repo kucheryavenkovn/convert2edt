@@ -1,5 +1,8 @@
 import html
 import json
+import subprocess
+import threading
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -155,23 +158,120 @@ def wizard() -> dict:
     return data
 
 
+class SyncRunner:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.proc: subprocess.Popen | None = None
+        self.lines: deque[str] = deque(maxlen=5000)
+        self.status = "idle"
+
+    def start(self, config_path: Path) -> None:
+        with self.lock:
+            if self.proc is not None and self.proc.poll() is None:
+                raise RuntimeError("синхронизация уже выполняется")
+            self.lines.clear()
+            self.status = "running"
+            self.proc = subprocess.Popen(
+                ["1c-convert", "sync-all", "--config", str(config_path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",
+                bufsize=1,
+            )
+            threading.Thread(target=self._pump, daemon=True).start()
+
+    def _pump(self) -> None:
+        assert self.proc is not None and self.proc.stdout is not None
+        for line in self.proc.stdout:
+            self.lines.append(line.rstrip("\n"))
+        code = self.proc.wait()
+        self.status = "done" if code == 0 else f"failed (код {code})"
+        info(f"config-server: sync finished: {self.status}")
+
+    def snapshot(self, after: int = 0) -> dict:
+        with self.lock:
+            items = list(self.lines)
+            running = self.proc is not None and self.proc.poll() is None
+        return {
+            "status": self.status if not running else "running",
+            "total": len(items),
+            "lines": items[after:],
+        }
+
+
+RUNNER = SyncRunner()
+
+
+def read_state(data: dict) -> dict:
+    from .pipeline import run_git
+
+    worktree = Path(data.get("worktree") or "/work/output/storage-git")
+    result: dict = {"worktree": str(worktree), "exists": worktree.is_dir()}
+    if not result["exists"]:
+        return result
+    state_file = worktree / ".storage-sync.json"
+    projects: dict = {}
+    if state_file.is_file():
+        try:
+            projects = json.loads(state_file.read_text(encoding="utf-8")).get("projects", {})
+        except (OSError, ValueError):
+            projects = {}
+    result["projects"] = projects
+    result["dirs"] = sorted(
+        item.name for item in worktree.iterdir() if item.is_dir() and item.name != ".git"
+    )
+    commits = []
+    if (worktree / ".git").exists():
+        try:
+            out = run_git(
+                worktree,
+                "log",
+                "-15",
+                "--format=%h%x09%ad%x09%an%x09%s",
+                "--date=short",
+            )
+            for line in out.splitlines():
+                parts = line.split("\t", 3)
+                if len(parts) == 4:
+                    commits.append(
+                        {
+                            "hash": parts[0],
+                            "date": parts[1],
+                            "author": parts[2],
+                            "message": parts[3],
+                        }
+                    )
+        except RuntimeError:
+            commits = []
+    result["commits"] = commits
+    return result
+
+
 PAGE = """<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <title>1c-convert — sync.toml</title>
 <style>
  body{font-family:sans-serif;max-width:860px;margin:24px auto;padding:0 12px;background:#f6f7f9}
- h1{font-size:1.3rem} fieldset{margin:12px 0;border:1px solid #ccd;border-radius:8px;background:#fff}
+ h1{font-size:1.3rem} h2{font-size:1.05rem;margin-top:24px}
+ fieldset{margin:12px 0;border:1px solid #ccd;border-radius:8px;background:#fff}
  legend{font-weight:600;padding:0 6px}
  label{display:block;margin:6px 0 2px;font-size:.9rem;color:#333}
  input{width:100%;box-sizing:border-box;padding:6px;border:1px solid #bbc;border-radius:4px}
  .ext{border-left:4px solid #7aa;padding:6px 10px;margin:8px 0;background:#eef}
  button{margin-top:10px;padding:8px 16px;border:0;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer}
  button.mini{background:#9333ea;padding:4px 10px}
- pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto}
+ button.green{background:#16a34a}
+ pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto;max-height:340px}
  .hint{color:#777;font-size:.85rem}
+ .state{background:#fff;border:1px solid #ccd;border-radius:8px;padding:10px;margin:8px 0}
+ .pill{display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;padding:2px 10px;margin:2px;font-size:.85rem}
+ .cur{font-weight:600;color:#2563eb;white-space:pre-wrap}
+ table{border-collapse:collapse;width:100%;font-size:.85rem;background:#fff}
+ td,th{border-bottom:1px solid #e2e8f0;padding:4px 6px;text-align:left}
 </style></head><body>
-<h1>1c-convert — конфигурация синхронизации (sync.toml)</h1>
-<p class="hint">Пути указываются внутри контейнера. «Сохранить» записывает файл на сервере контейнера.</p>
+<h1>1c-convert — конфигурация и запуск синхронизации</h1>
+<p class="hint">Пути — внутри контейнера. Базовый проект расширений/обработок подставляется из имени проекта конфигурации.</p>
 <form id="f">
 <fieldset><legend>Монорепозиторий</legend>
  <label>git-worktree <input name="worktree" value="/work/output/storage-git"></label>
@@ -180,7 +280,7 @@ PAGE = """<!doctype html>
 </fieldset>
 <fieldset><legend>Хранилище конфигурации</legend>
  <label>Путь к хранилищу <input name="config_storage" value="/work/fixtures/crs/cf"></label>
- <label>Имя проекта <input name="config_project" value="configuration"></label>
+ <label>Имя проекта <input name="config_project" value="configuration" id="cp"></label>
 </fieldset>
 <fieldset><legend>Расширения</legend><div id="exts"></div>
  <button type="button" class="mini" onclick="addExt()">+ расширение</button>
@@ -190,13 +290,33 @@ PAGE = """<!doctype html>
  <label>Каталог исходников в worktree <input name="external_sources" value="external-src"></label>
  <label>Каталог XML (EDT-проект; пусто = пропустить) <input name="external_xml_dir"></label>
  <label>Имя EDT-проекта <input name="external_project" value="external"></label>
- <label>Базовый проект (EDT) <input name="external_base_project" value="configuration"></label>
+ <label>Базовый проект (EDT) <input name="external_base_project" id="ebp"></label>
 </fieldset>
-<button type="button" onclick="send(false)">Предпросмотр</button>
+<button type="button" onclick="send(false)">Предпросмотр TOML</button>
 <button type="button" onclick="send(true)">Сохранить в файл</button>
+<button type="button" onclick="state()">Показать состояние</button>
+<button type="button" class="green" onclick="runSync()">▶ Запустить синхронизацию</button>
 </form>
-<h2>sync.toml</h2><pre id="out">— заполните форму и нажмите «Предпросмотр» —</pre>
+<h2>Состояние (что уже выгружено из хранилищ)</h2><div id="state" class="state">— нажмите «Показать состояние» —</div>
+<h2>Ход синхронизации</h2><div id="cur" class="cur">—</div>
+<pre id="out">— заполните форму и нажмите «Предпросмотр» —</pre>
+<pre id="log" style="display:none"></pre>
 <script>
+const $=n=>document.querySelector(n);
+function formData(){
+ const f=document.getElementById('f'), data=Object.fromEntries(new FormData(f));
+ data.extensions=[...document.querySelectorAll('.ext')].map(e=>({
+  name:e.querySelector('[name=ext_name]').value,
+  storage:e.querySelector('[name=ext_storage]').value,
+  project:e.querySelector('[name=ext_project]').value,
+  base_project:e.querySelector('[name=ext_base]').value||$('#cp').value
+ }));
+ return data;
+}
+function syncBases(){ $('#ebp').value=$('#cp').value;
+ document.querySelectorAll('.ext [name=ext_base]').forEach(i=>{ if(!i.dataset.touched) i.value=$('#cp').value; }); }
+$('#cp').addEventListener('input',syncBases);
+$('#ebp').addEventListener('input',()=>{});
 function addExt(){
  const d=document.createElement('div');d.className='ext';
  d.innerHTML='<label>Имя <input name="ext_name"></label>'
@@ -204,20 +324,56 @@ function addExt(){
   +'<label>Проект <input name="ext_project"></label>'
   +'<label>Базовый проект (EDT) <input name="ext_base"></label>';
  document.getElementById('exts').appendChild(d);
+ d.querySelector('[name=ext_base]').value=$('#cp').value;
+ d.querySelector('[name=ext_base]').addEventListener('input',e=>e.target.dataset.touched=1);
 }
 async function send(save){
- const f=document.getElementById('f'), data=Object.fromEntries(new FormData(f));
- data.extensions=[...document.querySelectorAll('.ext')].map(e=>({
-  name:e.querySelector('[name=ext_name]').value,
-  storage:e.querySelector('[name=ext_storage]').value,
-  project:e.querySelector('[name=ext_project]').value,
-  base_project:e.querySelector('[name=ext_base]').value||data.config_project
- }));
  const r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({save:!!save,data:data})});
+   body:JSON.stringify({save:!!save,data:formData()})});
  const j=await r.json();
  document.getElementById('out').textContent=j.toml||j.error;
 }
+async function state(){
+ const r=await fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({data:formData()})});
+ renderState(await r.json());
+}
+function renderState(s){
+ if(!s.exists){ $('#state').textContent='worktree не существует: '+s.worktree+' (будет создан при синхронизации)'; return; }
+ let h='<div>Проекты (последняя синхронизированная версия хранилища):</div>';
+ if(s.projects&&Object.keys(s.projects).length){
+  for(const [p,v] of Object.entries(s.projects)) h+='<span class="pill">'+p+': версия '+v+'</span>';
+ } else h+='<span class="pill">пока ничего не синхронизировано</span>';
+ if(s.dirs) h+='<div class="hint">каталоги: '+s.dirs.join(', ')+'</div>';
+ if(s.commits&&s.commits.length){
+  h+='<table><tr><th>hash</th><th>дата</th><th>автор</th><th>комментарий</th></tr>';
+  for(const c of s.commits) h+='<tr><td>'+c.hash+'</td><td>'+c.date+'</td><td>'+c.author+'</td><td>'+c.message+'</td></tr>';
+  h+='</table>';
+ }
+ $('#state').innerHTML=h;
+}
+let logPos=0, timer=null;
+async function runSync(){
+ const r=await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({data:formData()})});
+ const j=await r.json();
+ if(j.error){ $('#cur').textContent='ОШИБКА: '+j.error; return; }
+ logPos=0; $('#log').style.display='block'; $('#log').textContent='';
+ $('#cur').textContent='запущено...';
+ if(timer) clearInterval(timer);
+ timer=setInterval(poll,1200);
+}
+async function poll(){
+ const r=await fetch('/api/sync/log?after='+logPos);
+ const j=await r.json();
+ logPos=j.total;
+ if(j.lines&&j.lines.length) $('#log').textContent+=j.lines.join('\\n')+'\\n';
+ $('#log').scrollTop=$('#log').scrollHeight;
+ const cur=j.lines?j.lines.filter(l=>l.includes('--- version')||l.includes('syncing')||l.includes('sync done')||l.includes('committed')):[];
+ if(cur.length) $('#cur').textContent=cur[cur.length-1];
+ if(j.status!=='running'){ clearInterval(timer); timer=null; $('#cur').textContent='ГОТОВО: '+j.status; state(); }
+}
+syncBases(); state();
 </script></body></html>"""
 
 
@@ -234,34 +390,65 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _json(self, code: int, payload: dict) -> None:
+        self._send(code, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json")
+
+    def _body(self) -> dict:
+        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            return json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return {}
+
     def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
             self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
             return
+        if self.path.startswith("/api/sync/log"):
+            after = 0
+            if "after=" in self.path:
+                try:
+                    after = int(self.path.split("after=")[1].split("&")[0])
+                except ValueError:
+                    after = 0
+            self._json(200, RUNNER.snapshot(after))
+            return
         self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:
-        if self.path != "/api/generate":
-            self._send(404, b"not found", "text/plain")
-            return
-        length = int(self.headers.get("Content-Length") or 0)
-        try:
-            payload = json.loads(self.rfile.read(length) or b"{}")
-            toml = render_toml(payload.get("data") or {})
-        except Exception as error:
-            self._send(400, json.dumps({"error": str(error)}).encode(), "application/json")
-            return
-        saved = ""
-        if payload.get("save"):
+        if self.path == "/api/generate":
+            payload = self._body()
             try:
+                toml = render_toml(payload.get("data") or {})
+            except Exception as error:
+                self._json(400, {"error": str(error)})
+                return
+            saved = ""
+            if payload.get("save"):
+                try:
+                    self.out_path.write_text(toml, encoding="utf-8")
+                    saved = f"\n# сохранено: {self.out_path}"
+                    info(f"config-server: saved {self.out_path}")
+                except OSError as error:
+                    saved = f"\n# ошибка сохранения: {html.escape(str(error))}"
+            self._json(200, {"toml": toml + saved})
+            return
+        if self.path == "/api/state":
+            self._json(200, read_state(self._body().get("data") or {}))
+            return
+        if self.path == "/api/sync":
+            payload = self._body()
+            data = payload.get("data") or {}
+            try:
+                toml = render_toml(data)
                 self.out_path.write_text(toml, encoding="utf-8")
-                saved = f"\n# сохранено: {self.out_path}"
-                info(f"config-server: saved {self.out_path}")
-            except OSError as error:
-                saved = f"\n# ошибка сохранения: {html.escape(str(error))}"
-        self._send(
-            200, json.dumps({"toml": toml + saved}).encode("utf-8"), "application/json"
-        )
+                RUNNER.start(self.out_path)
+            except (RuntimeError, OSError, ValueError) as error:
+                self._json(409, {"error": str(error)})
+                return
+            self._json(200, {"started": True, "config": str(self.out_path)})
+            return
+        self._send(404, b"not found", "text/plain")
 
 
 def serve(host: str, port: int, out_path: Path | None = None) -> None:
