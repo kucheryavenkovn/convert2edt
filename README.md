@@ -314,6 +314,10 @@ powershell -ExecutionPolicy Bypass -File scripts\local\run-local.ps1
 # 2. сборка
 docker compose build converter
 
+# 2-альтернатива. готовый образ из релиза (без vendor/ и сборки):
+#   CONVERTER_IMAGE=ghcr.io/kucheryavenkovn/convert2edt:v1.0.0 в .env
+#   docker compose pull converter
+
 # 3. smoke test (CF → XML → EDT → XML → CF)
 Copy-Item tests\fixtures\1Cv8.cf input\
 docker compose run --rm converter bash /work/tests/smoke/run_smoke.sh /work/input/1Cv8.cf
