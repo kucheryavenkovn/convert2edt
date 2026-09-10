@@ -29,6 +29,49 @@
 > Проект не реализует собственные парсеры форматов 1С и использует официальные
 > `ibcmd` и `1cedtcli`.
 
+## Состав образа (дерево зависимостей)
+
+```
+convert2edt/converter:latest          (Dockerfile, compose.yaml)
+│
+├── debian:bookworm-slim ............... базовый образ (ARG BASE_IMAGE)
+│     └── java-17-openjdk, boost 1.74, zlib, git, python3 (пакеты Debian)
+│
+├── 1С:Предприятие 8.3.27.2342 ......... закрытый дистрибутив (vendor/platform/)
+│     └── deb: common(+nls), server(+nls) -> /opt/1cv8/current -> ibcmd
+│
+├── 1C:EDT 2026.1.3 offline ............ закрытый дистрибутив (vendor/edt/)
+│     └── 1ce-installer-cli -> /opt/1C/1CE/components/1cedtcli -> 1cedtcli
+│
+├── e8tools/tool1cd @ f0361ad (GPL-3) . собирается из исходников в builder-стадии
+│     └── ctool1cd + libtool1cd.so .... чтение хранилищ конфигураций
+│     └── изменения: патч depot-ver100 (хранилища расширений) + sed (без GUI)
+│
+├── e8tools/v8unpack @ d34bb1e (MPL-2.0)  собирается из исходников в builder-стадии
+│     └── v8unpack ..................... распаковка/сборка .epf/.erf
+│     └── изменения: только конфиг сборки (динамический boost), код не менялся
+│
+└── converter/onec_convert (наш код) ... тонкая orchestration-обвязка (Python)
+      └── алгоритмы: 1CFilesConverter (пере-реализация), схема Docker: kafka-tools
+```
+
+Пины версий задаётся build-аргументами (`TOOL1CD_REF`, `V8UNPACK_REF`,
+`EDT_PLATFORM_SUPPORT` и др.), версии инструментов попадают в labels образа
+(`onec.converter.*`). Лицензии и обязательные notice'ы — в
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+**Изменения во внешних проектах — только два, оба задокументированы:**
+
+| Проект | Изменение | Тип |
+|---|---|---|
+| e8tools/tool1cd | `docker/patches/tool1cd-depot-ver100.patch` — хранилища расширений (depot ver 100) трактуются как Ver7-layout | функциональный патч, ~5 строк |
+| e8tools/v8unpack | sed в builder-стадии: динамический boost вместо статического | только конфигурация сборки, код не тронут |
+
+Скрипты установки платформы/EDT адаптированы из kafka-tools (notice в
+заголовках файлов), код 1CFilesConverter не копировался — вызовы
+ibcmd/1cedtcli пере-реализованы на Python; из их tests взят только fixture
+`1Cv8.cf`. Закрытые дистрибутивы 1С не модифицируются.
+
 ## Сценарии
 
 | Команда | Что делает | Путь |
@@ -182,7 +225,7 @@ Designer-XML** внешних обработок средствами `ibcmd + 1
 
 Единый конфиг путей для `sync-all` (копия `sync.toml.example`):
 `[worktree]` — git-репозиторий монорепо; `[configuration]` — хранилище
-конигурации; `[[extension]]` — хранилища расширений (сколько нужно);
+конфигурации; `[[extension]]` — хранилища расширений (сколько нужно);
 `[external]` — каталог с бинарными .erf/.epf (`dir` → `external-src`) и
 опционально каталог XML (`xml_dir` → EDT-проект `external`).
 Пути указываются внутри контейнера (см. монтирования в `compose.yaml`;
