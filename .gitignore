@@ -11,6 +11,9 @@ output/
 cache/
 storage/
 storage-ext/
+.bridge/
+tools/
+*.exe
 
 # Секреты и окружение
 .env

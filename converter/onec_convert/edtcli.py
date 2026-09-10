@@ -1,9 +1,18 @@
+import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
 from .env import Config
 from .proc import mask_command, warn
+
+
+def _edtcli_command() -> list[str]:
+    override = os.environ.get("EDTCLI_TOOL", "").strip()
+    if override:
+        return shlex.split(override)
+    return ["1cedtcli"]
 
 ERROR_PATTERNS = [
     re.compile(r"\bERROR\b"),
@@ -27,7 +36,7 @@ class EdtCli:
 
     def _base(self, ws: Path) -> list[str]:
         return [
-            "1cedtcli",
+            *_edtcli_command(),
             "-data",
             str(ws),
             "-timeout",

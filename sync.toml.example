@@ -1,7 +1,7 @@
 # sync.toml — конфиг синхронизации для `1c-convert sync-all --config /work/sync.toml`.
 # Пути указываются ВНУТРИ контейнера (см. монтирования в compose.yaml).
 # Создать этот файл можно мастером: `1c-convert init-config`
-# или веб-помощником: `docker compose run --rm --publish 8080:8080 converter config-server`
+# или веб-помощником: `docker compose run --rm --publish 8080:8080 converter 1c-convert config-server`
 # → http://127.0.0.1:8080
 
 [worktree]
@@ -27,13 +27,10 @@ project = "extension"
 base_project = "configuration"
 
 [external]
-# каталог с бинарными внешними отчётами/обработками (.erf/.epf):
-# каждый файл распаковывается в <worktree>/<sources>/<Имя> (исходники v8unpack)
-dir = "/work/fixtures/erf"
-sources = "external-src"
-
-# необязательно: каталог с XML внешних отчётов/обработок (выгрузка Конфигуратора)
-# -> EDT-проект внешних отчётов и обработок <worktree>/<project>
-# xml_dir = "/work/fixtures/dp-xml"
-# project = "external"
-# base_project = "configuration"
+# флажок: выгружать внешние отчёты/обработки в EDT-проект (по XML-каталогу).
+# false или отсутствие секции — внешний шаг пропускается.
+enabled = true
+# каталог с XML внешних отчётов/обработок (выгрузка Конфигуратора)
+xml_dir = "/work/fixtures/dp-xml"
+project = "external"
+base_project = "configuration"

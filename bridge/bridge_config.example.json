@@ -1,0 +1,23 @@
+{
+  "listen": "0.0.0.0:17833",
+  "token": "CHANGE-ME-long-random-string",
+  "platformVersion": "8.3.27",
+  "platformRoots": [
+    "C:\\Program Files\\1cv8",
+    "C:\\Program Files (x86)\\1cv8"
+  ],
+  "allowedStorages": [
+    "D:\\git\\convert2edt\\fixtures\\crs\\cf",
+    "D:\\git\\convert2edt\\fixtures\\crs\\ext"
+  ],
+  "bridgeRoot": "D:\\git\\convert2edt\\.bridge",
+  "pathMappings": [
+    { "docker": "/bridge", "windows": "D:\\git\\convert2edt\\.bridge" },
+    { "docker": "/storage", "windows": "D:\\git\\convert2edt\\fixtures\\crs\\cf" },
+    { "docker": "/storage-ext", "windows": "D:\\git\\convert2edt\\fixtures\\crs\\ext" }
+  ],
+  "timeoutSeconds": 1800,
+  "maxConcurrentJobs": 1,
+  "logFile": "D:\\git\\convert2edt\\.bridge\\bridge.log",
+  "licenseSmoke": { "enabled": true, "cacheSeconds": 300 }
+}

@@ -1,4 +1,5 @@
 import os
+import tempfile
 from pathlib import Path
 
 
@@ -26,7 +27,9 @@ def secret(name: str, file_name: str) -> str:
 
 class Config:
     def __init__(self) -> None:
-        self.temp_root = Path(env("CONVERT_TEMP_ROOT", "/tmp/onec-convert"))
+        self.temp_root = Path(
+            env("CONVERT_TEMP_ROOT", str(Path(tempfile.gettempdir()) / "onec-convert"))
+        )
         self.edt_ws_root = Path(env("CONVERT_EDT_WS_ROOT", str(self.temp_root.parent / "edt-ws")))
         self.clean_dst = env_flag("CONVERT_CLEAN_DST") or env_flag("V8_CONF_CLEAN_DST")
         self.keep_temp = env_flag("CONVERT_KEEP_TEMP")

@@ -311,22 +311,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p = sub.add_parser(
-        "dp-unpack",
-        help=".epf/.erf binary -> text sources (v8unpack), для хранения в git",
-    )
-    p.add_argument("src", type=path_arg)
-    p.add_argument("dst", type=path_arg)
-    p.set_defaults(func=make_handler(lambda pl, a: pl.dp_unpack(a.src, a.dst)))
-
-    p = sub.add_parser(
-        "dp-build",
-        help="v8unpack sources -> .epf/.erf binary (deploy)",
-    )
-    p.add_argument("src", type=path_arg)
-    p.add_argument("dst", type=path_arg)
-    p.set_defaults(func=make_handler(lambda pl, a: pl.dp_build(a.src, a.dst)))
-
-    p = sub.add_parser(
         "sync-all",
         help="run all syncs from a TOML config (storages, extensions, external dp)",
     )

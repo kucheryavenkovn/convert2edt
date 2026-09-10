@@ -1,0 +1,25 @@
+# Локальный (без Docker) конфиг синхронизации: пути указываются КАК ЕСТЬ
+# на этой Windows-машине (прямой слэш или обратный — оба работают).
+
+[worktree]
+path = "D:/git/convert2edt/output/local-git"
+
+[configuration]
+storage = "D:/git/convert2edt/fixtures/crs/cf"
+project = "configuration"
+
+# Расширения: локальный ctool1cd (релиз e8tools) не знает depot version 100
+# хранилищ расширений — расширения синкуйте docker-каналом (docker compose
+# run --rm converter sync-all), где ctool1cd собран с патчем ver100.
+# [[extension]]
+# name = "Расширение1"
+# storage = "D:/git/convert2edt/fixtures/crs/ext/Расширение1"
+# project = "extension"
+# base_project = "configuration"
+
+[external]
+dir = "D:/git/convert2edt/fixtures/erf"
+sources = "external-src"
+# xml_dir = "D:/git/convert2edt/fixtures/dp-xml"
+# project = "external"
+# base_project = "configuration"

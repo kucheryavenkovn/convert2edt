@@ -65,24 +65,6 @@ depot version 100, трактуются как Ver7-layout). Образ с `ctoo
 label `onec.converter.tool1cd-ref`, изменения — в этом файле и в
 `docker/patches/`).
 
-## e8tools/v8unpack — MPL-2.0
-
-- URL: https://github.com/e8tools/v8unpack
-- Лицензия: Mozilla Public License 2.0 (копия: см. репозиторий upstream, файл LICENSE)
-- Авторы: Denis Demidov, Sergey Batanov, Sergey Rudakov и сообщество e8tools
-
-`v8unpack` собирается из исходников upstream в builder-стадии Dockerfile
-(пин коммита — `ARG V8UNPACK_REF`) и используется как самостоятельная
-утилита распаковки/сборки бинарных файлов внешних отчётов и обработок
-(`.erf`/`.epf`) без платформы 1С. Код в код проекта не включается.
-Изменение относительно upstream (только в конфигурации сборки builder-стадии):
-динамический boost вместо захардкоженного статического
-(`sed` удаляет `Boost_USE_STATIC_*` из CMakeLists.txt).
-
-This Source Code Form is subject to the terms of the Mozilla Public
-License, v. 2.0. If a copy of the MPL was not distributed with this
-file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 ## Дистрибутивы 1С
 
 `vendor/` (не в git) содержит только официальные дистрибутивы

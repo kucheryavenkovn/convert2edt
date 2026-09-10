@@ -1,21 +1,36 @@
-# sync.toml — сгенерировано 1c-convert init-config / config-server
+# sync.toml — конфиг синхронизации для `1c-convert sync-all --config /work/sync.toml`.
 # Пути указываются ВНУТРИ контейнера (см. монтирования в compose.yaml).
+# Создать этот файл можно мастером: `1c-convert init-config`
+# или веб-помощником: `docker compose run --rm --publish 8080:8080 converter 1c-convert config-server`
+# → http://127.0.0.1:8080
 
 [worktree]
+# git-репозиторий, куда складываются все проекты (создаётся при отсутствии)
 path = "/work/output/storage-git"
+# необязательно: файл мапинга авторов и домен для email (см. README)
 # authors_file = "/work/authors.txt"
-domain = "storage.local"
+# domain = "company.local"
 
 [configuration]
+# хранилище конфигурации: каталог с 1cv8ddb.1CD или путь к самому файлу
 storage = "/work/fixtures/crs/cf"
+# имя проекта = имя каталога в worktree И имя EDT-проекта (можно любое)
 project = "configuration"
+
 [[extension]]
+# хранилище расширения (может быть много секций [[extension]])
 name = "Расширение1"
 storage = "/work/fixtures/crs/ext/Расширение1"
 project = "extension"
+# базовый EDT-проект (обычно проект конфигурации): перед импортом расширения
+# базовый проект импортируется в workspace, расширение — с --base-project-name
 base_project = "configuration"
 
-
 [external]
-dir = "/work/fixtures/erf"
-sources = "external-src"
+# флажок: выгружать внешние отчёты/обработки в EDT-проект (по XML-каталогу).
+# false или отсутствие секции — внешний шаг пропускается.
+enabled = true
+# каталог с XML внешних отчётов/обработок (выгрузка Конфигуратора)
+xml_dir = "/work/fixtures/dp-xml"
+project = "external"
+base_project = "configuration"

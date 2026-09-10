@@ -584,45 +584,6 @@ class Pipeline:
 
         self.run("dp-xml-to-edt", steps)
 
-    def dp_unpack(self, src: Path, dst_root: Path) -> list[Path]:
-        from .v8unpack import unpack_to_sources
-
-        def steps() -> None:
-            binaries = self._collect_dp_binaries(src)
-            if not binaries:
-                raise ValueError(f"no .epf/.erf files found in {src}")
-            dst_root.mkdir(parents=True, exist_ok=True)
-            for binary in binaries:
-                target = dst_root / binary.stem
-                info(f"unpacking {binary.name} -> {target}")
-                unpack_to_sources(binary, target)
-                if not any(target.iterdir()):
-                    raise RuntimeError(f"v8unpack produced no sources in {target}")
-
-        self.run("dp-unpack", steps)
-
-    def dp_build(self, source_dir: Path, out_file: Path) -> None:
-        from .v8unpack import build_from_sources
-
-        def steps() -> None:
-            info(f"building {out_file.name} from {source_dir}")
-            build_from_sources(source_dir, out_file)
-            self.assert_file(out_file)
-            info(f"result: {out_file}")
-
-        self.run("dp-build", steps)
-
-    def _collect_dp_binaries(self, src: Path) -> list[Path]:
-        if src.is_file() and src.suffix.lower() in (".epf", ".erf"):
-            return [src]
-        if src.is_dir():
-            return sorted(
-                item
-                for item in src.iterdir()
-                if item.is_file() and item.suffix.lower() in (".epf", ".erf")
-            )
-        raise ValueError(f".epf/.erf file or directory expected: {src}")
-
 
 
 def platform_version() -> str:

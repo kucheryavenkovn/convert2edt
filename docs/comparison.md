@@ -17,9 +17,8 @@
 | Хранилище → git-история (1 версия = 1 коммит) | + (gitsync, DESIGNER+лицензия) | + (`storage-sync`, без DESIGNER) |
 | Хранилище расширений → git (в тот же monorepo, с базовой конфигурацией) | - | + (`storage-sync --extension --base`; патч ctool1cd depot-ver100) |
 | Расширения: cfe/xml/edt как разовые конвертации | + (`ext2edt`, `ext2cfe`, ...) | - (механизм реализован внутри storage-sync; отдельные команды — по запросу) |
-| Внешние обработки: XML ↔ EDT-проект | + (`dp2edt`, только через DESIGNER для бинарника) | + (`dp-xml-to-edt`/`edt-to-xml`, без DESIGNER; version-quirk EDT CLI обойдён) |
-| Внешние обработки: бинарник ↔ исходники без лицензии | - (только DESIGNER) | + (`dp-unpack`/`dp-build`, v8unpack, round-trip проверен) |
-| Внешние обработки: бинарник ↔ Designer-XML headless | + (DESIGNER, лицензия) | - (зафиксировано как ограничение; официальных без-DESIGNER средств нет) |
+| Внешние обработки: XML ↔ EDT-проект | + (`dp2edt`, только через DESIGNER для бинарника) | + (`dp-xml-to-edt`/`edt-to-xml` + опциональный шаг `[external] enabled`, без DESIGNER; version-quirk EDT CLI обойдён) |
+| Внешние обработки: бинарник ↔ Designer-XML headless | + (DESIGNER, лицензия) | - (зафиксировано как ограничение; официальный путь — через Host Bridge/DESIGNER) |
 | XML → IB (создание/загрузка) | + (`conf2ib`) | - (обёртки ibcmd `infobase create/import` уже есть внутри pipeline) |
 | CF → IB | + (`conf2ib`) | - (см. выше) |
 | client/server IB | + (`/S...`, `V8_DB_SRV_*`) | частично (параметры реализованы, не проверено) |

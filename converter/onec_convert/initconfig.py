@@ -37,9 +37,8 @@ DEFAULTS = {
     "config_storage": "/work/fixtures/crs/cf",
     "config_project": "configuration",
     "extensions": [],
-    "external_dir": "/work/fixtures/erf",
-    "external_sources": "external-src",
-    "external_xml_dir": "",
+    "external_enabled": True,
+    "external_xml_dir": "/work/fixtures/dp-xml",
     "external_project": "external",
 }
 
@@ -67,19 +66,16 @@ def render_toml(data: dict) -> str:
             base_project=base,
         )
 
-    external_lines = []
-    if data.get("external_dir"):
-        external_lines.append(
-            f'dir = "{data["external_dir"]}"\nsources = "{data.get("external_sources") or "external-src"}"'
-        )
-    if data.get("external_xml_dir"):
-        external_lines.append(
-            f'xml_dir = "{data["external_xml_dir"]}"\n'
-            f'project = "{data.get("external_project") or "external"}"\n'
-            f'base_project = "{data.get("external_base_project") or config_project}"'
-        )
-    if not external_lines:
-        external_lines.append('# dir = "/work/fixtures/erf"\n# sources = "external-src"')
+    enabled = "true" if data.get("external_enabled") else "false"
+    xml_dir = data.get("external_xml_dir") or ""
+    project = data.get("external_project") or "external"
+    base = data.get("external_base_project") or config_project
+    external_lines = (
+        f'enabled = {enabled}\n'
+        f'xml_dir = "{xml_dir}"\n'
+        f'project = "{project}"\n'
+        f'base_project = "{base}"'
+    )
 
     return CONFIG_TEMPLATE.format(
         worktree=worktree,
@@ -87,7 +83,7 @@ def render_toml(data: dict) -> str:
         config_storage=config_storage,
         config_project=config_project,
         extension_sections=extension_sections,
-        external_lines="\n".join(external_lines),
+        external_lines=external_lines,
     )
 
 
@@ -138,17 +134,12 @@ def wizard() -> dict:
         index += 1
 
     print("\n--- внешние отчёты и обработки ---")
-    data["external_dir"] = _ask(
-        "каталог с .erf/.epf (v8unpack-исходники, пусто = пропустить)",
-        DEFAULTS["external_dir"],
-    )
-    data["external_sources"] = _ask(
-        "каталог исходников в worktree", DEFAULTS["external_sources"]
-    )
-    data["external_xml_dir"] = _ask(
-        "каталог XML внешних обработок (EDT-проект, пусто = пропустить)", ""
-    )
-    if data["external_xml_dir"]:
+    enabled = _ask("выгружать обработки в EDT-проект? (1=да, 0=нет)", "1")
+    data["external_enabled"] = enabled.strip() == "1"
+    if data["external_enabled"]:
+        data["external_xml_dir"] = _ask(
+            "каталог XML внешних обработок", DEFAULTS["external_xml_dir"]
+        )
         data["external_project"] = _ask(
             "имя EDT-проекта внешних обработок", DEFAULTS["external_project"]
         )
@@ -286,9 +277,8 @@ PAGE = """<!doctype html>
  <button type="button" class="mini" onclick="addExt()">+ расширение</button>
 </fieldset>
 <fieldset><legend>Внешние отчёты и обработки</legend>
- <label>Каталог .erf/.epf <input name="external_dir" value="/work/fixtures/erf"></label>
- <label>Каталог исходников в worktree <input name="external_sources" value="external-src"></label>
- <label>Каталог XML (EDT-проект; пусто = пропустить) <input name="external_xml_dir"></label>
+ <label><input type="checkbox" name="external_enabled" id="exen" style="width:auto" checked> выгружать обработки в EDT-проект</label>
+ <label>Каталог XML (выгрузка Конфигуратора) <input name="external_xml_dir" value="/work/fixtures/dp-xml"></label>
  <label>Имя EDT-проекта <input name="external_project" value="external"></label>
  <label>Базовый проект (EDT) <input name="external_base_project" id="ebp"></label>
 </fieldset>

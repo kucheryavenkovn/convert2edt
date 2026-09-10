@@ -47,25 +47,20 @@ convert2edt/converter:latest          (Dockerfile, compose.yaml)
 │     └── ctool1cd + libtool1cd.so .... чтение хранилищ конфигураций
 │     └── изменения: патч depot-ver100 (хранилища расширений) + sed (без GUI)
 │
-├── e8tools/v8unpack @ d34bb1e (MPL-2.0)  собирается из исходников в builder-стадии
-│     └── v8unpack ..................... распаковка/сборка .epf/.erf
-│     └── изменения: только конфиг сборки (динамический boost), код не менялся
-│
 └── converter/onec_convert (наш код) ... тонкая orchestration-обвязка (Python)
       └── алгоритмы: 1CFilesConverter (пере-реализация), схема Docker: kafka-tools
 ```
 
-Пины версий задаётся build-аргументами (`TOOL1CD_REF`, `V8UNPACK_REF`,
+Пины версий задаётся build-аргументами (`TOOL1CD_REF`,
 `EDT_PLATFORM_SUPPORT` и др.), версии инструментов попадают в labels образа
 (`onec.converter.*`). Лицензии и обязательные notice'ы — в
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-**Изменения во внешних проектах — только два, оба задокументированы:**
+**Изменения во внешних проектах — одно, задокументировано:**
 
 | Проект | Изменение | Тип |
 |---|---|---|
 | e8tools/tool1cd | `docker/patches/tool1cd-depot-ver100.patch` — хранилища расширений (depot ver 100) трактуются как Ver7-layout | функциональный патч, ~5 строк |
-| e8tools/v8unpack | sed в builder-стадии: динамический boost вместо статического | только конфигурация сборки, код не тронут |
 
 Скрипты установки платформы/EDT адаптированы из kafka-tools (notice в
 заголовках файлов), код 1CFilesConverter не копировался — вызовы
@@ -89,8 +84,6 @@ ibcmd/1cedtcli пере-реализованы на Python; из их tests вз
 | `storage-to-xml` | хранилище → XML версии | cf → temp IB → XML |
 | `storage-to-edt` | хранилище → EDT версии | cf → temp IB → XML → EDT |
 | `storage-sync` | хранилище → git-история (1 версия = 1 коммит) | весь конвейер + git |
-| `dp-unpack` | .erf/.epf → текстовые исходники (v8unpack) | для git, round-trip |
-| `dp-build` | исходники v8unpack → .erf/.epf | деплой бинарника |
 | `dp-xml-to-edt` | XML внешних отчётов/обработок → EDT-проект | `1cedtcli import` |
 | `sync-all` | всё сразу по TOML-конфигу | `sync.toml` |
 | `info` | версии ibcmd / 1cedtcli / платформы | |
@@ -178,38 +171,33 @@ worktree и не соседние проекты), state ведётся на к�
 
 ## Внешние отчёты и обработки (EPF/ERF)
 
-Два режима хранения в том же monorepo (могут использоваться одновременно):
+Опциональный шаг синхронизации — флажок в конфиге:
 
+```toml
+[external]
+enabled = true                  # false / секции нет → шаг пропускается
+xml_dir = "/work/fixtures/dp-xml"   # XML-выгрузка внешних отчётов/обработок
+project = "external"            # EDT-проект в worktree (накапливает обработки)
+base_project = "configuration"  # базовый EDT-проект
 ```
-storage-git/
-├── external/         # EDT-проект внешних отчётов и обработок (из XML)
-│   └── src/ExternalReports/<Имя>/...
-└── external-src/     # v8unpack-исходники (из бинарников .erf/.epf)
-    └── <Имя>/ (root, version, модули — текст)
-```
 
-1. **`dp-xml-to-edt`** — XML-выгрузка внешнего отчёта/обработки (формата
-   Конфигуратора) → **EDT-проект внешних отчётов** (`1cedtcli import`,
-   проекты накапливаются в одном каталоге). Обратно: `edt-to-xml`.
-   Известные quirks EDT 2026.1 CLI: для external-проектов `--version`
-   обязательна и должна быть короткой (`8.3.27`, не `8.3.27.2342`),
-   иначе NPE — оркестратор нормализует сам.
-2. **`dp-unpack` / `dp-build`** — бинарник ↔ текстовые исходники через
-   `v8unpack` (e8tools, MPL-2.0): полный round-trip без платформы и
-   лицензии; проверено: пересборка `ВнешнийОтчет1.erf` байт-в-байт
-   воспроизводит распаковку.
+Шаг: `1cedtcli import` XML-каталога → EDT-проект внешних отчётов и обработок
+(`src/ExternalReports/…`, `src/ExternalDataProcessors/…`; при заданном
+`base_project` — с `--base-project-name`). Обратно: `edt-to-xml`.
+Известные quirks EDT 2026.1 CLI: для external-проектов `--version` обязательна
+и должна быть короткой (`8.3.27`, не `8.3.27.2342`), иначе NPE — оркестратор
+нормализует сам.
 
-Ограничение (зафиксировано по результатам проверки): **бинарник ↔
-Designer-XML** внешних обработок средствами `ibcmd + 1cedtcli невозможен**
-в headless: CLI импортирует/экспортирует только XML, `build` бинарник не
-создаёт (автокомпиляция в `bin/` — поведение EDT IDE, см. доку
-«Проект внешних отчетов и обработок»). Официальный путь с бинарником —
-1cv8 DESIGNER (`/DumpExternalDataProcessorOrReportToFiles` /
+Ограничение (зафиксировано по результатам проверки): **бинарник .erf/.epf ↔
+Designer-XML** средствами `ibcmd + 1cedtcli` в headless невозможен: CLI
+импортирует/экспортирует только XML, `build` бинарник не создаёт
+(автокомпиляция в `bin/` — поведение EDT IDE, см. доку «Проект внешних
+отчетов и обработок»). Официальный путь с бинарником — 1cv8 DESIGNER
+(`/DumpExternalDataProcessorOrReportToFiles` /
 `/LoadExternalDataProcessorOrReportFromFiles`, как в upstream `dp2xml`/
-`dp2epf`) — требует лицензии и в этот конвейер не входит. Поэтому:
-бинарник → EDT-проект: сначала получите XML (одноразовый Designer-dump);
-разработка в EDT; исходники в git — `external/` (XML) или
-`external-src/` (v8unpack, прямой round-trip с бинарником).
+`dp2epf`) — доступен через Host Bridge (см. ниже) и требует лицензию.
+Поэтому: бинарник → EDT-проект = сначала получите XML (одноразовый
+Designer-dump), далее всё автоматизировано.
 
 ## Деплой
 
@@ -217,7 +205,6 @@ Designer-XML** внешних обработок средствами `ibcmd + 1
 |---|---|
 | CF из EDT-проекта | `1c-convert edt-to-cf <project> <out.cf>` (далее штатно: ИБ, dt...) |
 | CFE расширения | `1c-convert edt-to-cf` по проекту расширения выдаёт .cf контейнер |
-| .erf/.epf | `1c-convert dp-build <worktree>/external-src/<Имя> <out.erf>` |
 | XML внешних обработок | `1c-convert edt-to-xml <worktree>/external <xml-dir>` |
 | push | git на вашей стороне (`sync-all` не пушит) |
 
@@ -228,8 +215,8 @@ Designer-XML** внешних обработок средствами `ibcmd + 1
 конфигурации (`project` = имя каталога в worktree **и** имя EDT-проекта —
 можно любое); `[[extension]]` — хранилища расширений (сколько нужно), у
 каждого может быть `base_project` — базовый EDT-проект (обычно проект
-конфигурации); `[external]` — каталог с бинарными .erf/.epf (`dir` →
-`external-src`), опционально каталог XML (`xml_dir` → EDT-проект, тоже с
+конфигурации); `[external]` — опциональный шаг внешних обработок:
+флажок `enabled` + `xml_dir` → EDT-проект (`project`, тоже с
 `base_project`). Пути указываются внутри контейнера (см. монтирования в
 `compose.yaml`; fixtures смонтированы в `/work/fixtures`).
 

@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+1cv8-host — прозрачный wrapper для gitsync (вариант B, docs/SPEC.md п.4, docs/research/05).
+
+gitsync (v8runner) вызывает этот файл как обычный `1cv8` (через --v8-path, путь содержит
+версию платформы для regex v8runner). Wrapper:
+  1. валидирует argv по allowlist (fail-fast на неподдерживаемых вызовах);
+  2. отправляет argv как есть в Windows Host Bridge (маппинг путей делает мост);
+  3. печатает stdout/stderr и возвращает реальный exit code 1cv8;
+  4. при ошибке моста пишет сообщение в файл /Out (если он есть в argv),
+     чтобы gitsync показал внятный текст исключения.
+
+env: BRIDGE_URL (http://host.docker.internal:17833), BRIDGE_TOKEN, BRIDGE_TIMEOUT (1900 c).
+"""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://host.docker.internal:17833").rstrip("/")
+BRIDGE_TOKEN = os.environ.get("BRIDGE_TOKEN", "")
+BRIDGE_TIMEOUT = int(os.environ.get("BRIDGE_TIMEOUT", "1900"))
+
+MODES = {"DESIGNER", "CREATEINFOBASE"}
+PATH_PAIR_KEYS = {"/Out", "/ConfigurationRepositoryF", "/ConfigurationRepositoryReport",
+                  "/ConfigurationRepositoryDumpCfg", "/DumpConfigToFiles", "/LoadCfg",
+                  "-listFile", "-configDumpInfoForChanges"}
+VALUE_PAIR_KEYS = {"/ConfigurationRepositoryN", "/ConfigurationRepositoryP", "-NBegin", "-NEnd",
+                   "-v", "-format", "-Extension", "-ReportFormat"}
+ATTACHED_PATH_KEYS = ("/F", "/UseTemplate")
+ATTACHED_PLAIN_KEYS = ("/N", "/P", "/UC", "/C", "/L", "/VL", "/AddInList", "/WA")
+FLAG_KEYS = {"-force", "-update", "-NoTruncate", "-IncludeCommentLinesWithDoubleSlash",
+             "-AllExtensions", "/DisableStartupMessages", "/DisableStartupDialogs",
+             "/LRU", "/VLRU", "/WA+", "-configuredFromFiles"}
+COMMAND_KEYS = {"/ConfigurationRepositoryUpdateCfg", "/ConfigurationRepositoryReport",
+                "/ConfigurationRepositoryDumpCfg", "/ConfigurationRepositoryBindCfg",
+                "/ConfigurationRepositoryUnbindCfg", "/DumpConfigToFiles", "/LoadCfg"}
+
+
+def find_out_file(argv):
+    for i, a in enumerate(argv):
+        if a == "/Out" and i + 1 < len(argv):
+            return argv[i + 1]
+    return None
+
+
+def validate(argv):
+    if not argv:
+        return "пустой вызов"
+    if argv[0].upper() not in MODES:
+        return "неподдерживаемый режим (ожидаются DESIGNER/CREATEINFOBASE): %r" % argv[0]
+    i, n = 1, len(argv)
+    while i < n:
+        a = argv[i]
+        if a.startswith("File="):
+            i += 1
+            continue
+        if a in PATH_PAIR_KEYS:
+            if i + 1 >= n:
+                return "ключ %s без значения" % a
+            i += 2
+            continue
+        if a in VALUE_PAIR_KEYS:
+            if i + 1 >= n:
+                return "ключ %s без значения" % a
+            i += 2
+            continue
+        if a.startswith(ATTACHED_PATH_KEYS) or a.startswith(ATTACHED_PLAIN_KEYS):
+            i += 1
+            continue
+        if a in FLAG_KEYS or a in COMMAND_KEYS:
+            i += 1
+            continue
+        return "неизвестный/запрещённый аргумент: %r" % a
+    return None
+
+
+def write_out(out_file, text):
+    if not out_file:
+        return
+    try:
+        os.makedirs(os.path.dirname(out_file), exist_ok=True)
+        with open(out_file, "a", encoding="utf-8") as f:
+            f.write(text if text.endswith("\n") else text + "\n")
+    except OSError:
+        pass
+
+
+def main():
+    argv = sys.argv[1:]
+
+    err = validate(argv)
+    if err:
+        msg = ("ERROR: Unsupported 1cv8 invocation (1cv8-host wrapper).\n%s\n"
+               "Arguments:\n  %s" % (err, "\n  ".join(argv)))
+        sys.stderr.write(msg + "\n")
+        write_out(find_out_file(argv), msg)
+        return 1
+
+    body = json.dumps({"args": argv}).encode("utf-8")
+    req = urllib.request.Request(BRIDGE_URL + "/designer/run", data=body,
+                                 headers={"Content-Type": "application/json"})
+    if BRIDGE_TOKEN:
+        req.add_header("Authorization", "Bearer " + BRIDGE_TOKEN)
+
+    try:
+        with urllib.request.urlopen(req, timeout=BRIDGE_TIMEOUT) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        msg = "ERROR: Host Bridge отклонил вызов (HTTP %s): %s" % (e.code, detail.strip())
+        sys.stderr.write(msg + "\n")
+        write_out(find_out_file(argv), msg)
+        return 1
+    except Exception as e:
+        msg = "ERROR: Host Bridge недоступен (%s): %s" % (BRIDGE_URL, e)
+        sys.stderr.write(msg + "\n")
+        write_out(find_out_file(argv), msg)
+        return 1
+
+    if result.get("stdout"):
+        sys.stdout.write(result["stdout"])
+        sys.stdout.flush()
+    if result.get("stderr"):
+        sys.stderr.write(result["stderr"])
+        sys.stderr.flush()
+    return int(result.get("exitCode", 1))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

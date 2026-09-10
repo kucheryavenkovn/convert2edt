@@ -61,39 +61,64 @@ def sync_all(cfg: Config, config_path: Path) -> None:
     pipeline = Pipeline(cfg)
     ensure_git_repo(worktree)
 
+    failures: list[str] = []
+
+    def step(title: str, func) -> None:
+        try:
+            info(f"=== {title} ===")
+            func()
+        except Exception as error:
+            failures.append(f"{title}: {error}")
+            info(f"FAILED {title}: {error}")
+
     conf = data.get("configuration") or {}
     if conf.get("storage"):
-        pipeline.storage_sync(
-            conf["storage"],
-            worktree,
-            project_name=conf.get("project") or "configuration",
-            authors_file=Path(authors_file) if authors_file else None,
-            domain=domain,
+        step(
+            f"configuration: {conf.get('project') or 'configuration'}",
+            lambda: pipeline.storage_sync(
+                conf["storage"],
+                worktree,
+                project_name=conf.get("project") or "configuration",
+                authors_file=Path(authors_file) if authors_file else None,
+                domain=domain,
+            ),
         )
 
     for ext in data.get("extension") or []:
-        pipeline.storage_sync(
-            ext["storage"],
-            worktree,
-            project_name=ext.get("project") or "extension",
-            authors_file=Path(authors_file) if authors_file else None,
-            domain=domain,
-            extension=ext.get("name") or "",
-            base_project=ext.get("base_project") or "",
+        step(
+            f"extension: {ext.get('project') or 'extension'}",
+            lambda ext=ext: pipeline.storage_sync(
+                ext["storage"],
+                worktree,
+                project_name=ext.get("project") or "extension",
+                authors_file=Path(authors_file) if authors_file else None,
+                domain=domain,
+                extension=ext.get("name") or "",
+                base_project=ext.get("base_project") or "",
+            ),
         )
 
     external = data.get("external") or {}
-    if external.get("dir"):
-        sources = external.get("sources") or "external-src"
-        pipeline.dp_unpack(Path(external["dir"]), worktree / sources)
-        commit_external(worktree, [sources], "Внешние отчёты и обработки: обновление (v8unpack)")
-    if external.get("xml_dir"):
+    if not external.get("enabled"):
+        if external:
+            info("external: обработка отключена (enabled != true)")
+    elif not external.get("xml_dir"):
+        info("external: enabled=true, но xml_dir не задан — пропускаю")
+    else:
         project = external.get("project") or "external"
-        pipeline.dp_xml_to_edt(
-            Path(external["xml_dir"]),
-            worktree / project,
-            base_project=external.get("base_project") or "",
+        step(
+            "external: EDT",
+            lambda: pipeline.dp_xml_to_edt(
+                Path(external["xml_dir"]),
+                worktree / project,
+                base_project=external.get("base_project") or "",
+            ),
         )
-        commit_external(worktree, [project], "Внешние отчёты и обработки: обновление (EDT)")
+        step(
+            "external: commit EDT",
+            lambda: commit_external(worktree, [project], "Внешние отчёты и обработки: обновление (EDT)"),
+        )
 
+    if failures:
+        raise SyncConfigError("sync-all завершился с ошибками:\n  " + "\n  ".join(failures))
     info(f"sync-all done -> {worktree}")
