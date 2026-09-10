@@ -149,6 +149,7 @@ Ok "ctool1cd: $ctool"
 if ($DownloadOnly) { Write-Host "`nИнструменты готовы." -ForegroundColor Cyan; exit 0 }
 
 # --- запуск -----------------------------------------------------------------
+$env:V8_VERSION = $platform.Version   # детектированная платформа -> EDT import --version
 if ($useShim) {
     $env:PATH = "$tools;$($platform.Bin);$($env:PATH)"
 } else {
