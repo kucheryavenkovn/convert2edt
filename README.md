@@ -43,9 +43,9 @@ convert2edt/converter:latest          (Dockerfile, compose.yaml)
 ├── 1C:EDT 2026.1.3 offline ............ закрытый дистрибутив (vendor/edt/)
 │     └── 1ce-installer-cli -> /opt/1C/1CE/components/1cedtcli -> 1cedtcli
 │
-├── e8tools/tool1cd @ f0361ad (GPL-3) . собирается из исходников в builder-стадии
+├── e8tools/tool1cd @ 625ac1a (GPL-3) . собирается из исходников в builder-стадии
 │     └── ctool1cd + libtool1cd.so .... чтение хранилищ конфигураций
-│     └── изменения: патч depot-ver100 (хранилища расширений) + sed (без GUI)
+│     └── изменения: только sed (GUI не собирается) — depot-ver100 уже в upstream (PR #295)
 │
 └── converter/onec_convert (наш код) ... тонкая orchestration-обвязка (Python)
       └── алгоритмы: 1CFilesConverter (пере-реализация), схема Docker: kafka-tools
@@ -56,11 +56,14 @@ convert2edt/converter:latest          (Dockerfile, compose.yaml)
 (`onec.converter.*`). Лицензии и обязательные notice'ы — в
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-**Изменения во внешних проектах — одно, задокументировано:**
+**Изменения во внешних проектах: только конфигурация сборки.**
+Поддержка хранилищ расширений (depot version 100) принята в upstream —
+[PR #295](https://github.com/e8tools/tool1cd/pull/295) (слит, образ собирает
+vanilla upstream). Оставшаяся правка сборки:
 
 | Проект | Изменение | Тип |
 |---|---|---|
-| e8tools/tool1cd | `docker/patches/tool1cd-depot-ver100.patch` — хранилища расширений (depot ver 100) трактуются как Ver7-layout | функциональный патч, ~5 строк |
+| e8tools/tool1cd | sed: GUI-поддиректория (gtool1cd) исключена из сборки | только конфигурация сборки, код не тронут |
 
 Скрипты установки платформы/EDT адаптированы из kafka-tools (notice в
 заголовках файлов), код 1CFilesConverter не копировался — вызовы
@@ -164,10 +167,9 @@ worktree и не соседние проекты), state ведётся на к�
 > (`--extension`) используется для журнала/каталога; register-имя в ИБ
 > больше не применяется.
 
-> Примечание: хранилища расширений используют версию формата depot 100,
-> которую upstream `ctool1cd` не знает; в сборку образа включён
-> минимальный патч `docker/patches/tool1cd-depot-ver100.patch`
-> (100 трактуется как Ver7-layout, проверено на реальном хранилище).
+> Примечание: поддержка хранилищ расширений (depot version 100) принята
+> в upstream `ctool1cd` (наш [PR #295](https://github.com/e8tools/tool1cd/pull/295));
+> образ собирает vanilla upstream без патчей.
 
 ## Внешние отчёты и обработки (EPF/ERF)
 

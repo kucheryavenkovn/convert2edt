@@ -87,9 +87,7 @@ RUN --mount=type=bind,from=distr,source=.,target=/distr,readonly \
 # exports storage tables (VERSIONS/USERS -> version author/date/comment).
 # Source: https://github.com/e8tools/tool1cd (GPL-3, see THIRD_PARTY_NOTICES.md).
 FROM runtime-base AS tool1cd-builder
-ARG TOOL1CD_REF=f0361ad849076507684fe77bac7d59569a7ba244
-
-COPY docker/patches/tool1cd-depot-ver100.patch /tmp/patches/tool1cd-depot-ver100.patch
+ARG TOOL1CD_REF=625ac1a47b6ed63bba2848842daf1909813f84d4
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -101,13 +99,11 @@ RUN apt-get update \
       libboost-regex-dev \
       libboost-system-dev \
       make \
-      patch \
       zlib1g-dev \
   && rm -rf /var/lib/apt/lists/* \
   && curl -fsSL "https://github.com/e8tools/tool1cd/archive/${TOOL1CD_REF}.tar.gz" \
      | tar -xz -C /tmp \
   && cd /tmp/tool1cd-* \
-  && patch -p1 < /tmp/patches/tool1cd-depot-ver100.patch \
   && sed -i '/gtool1cd/d' CMakeLists.txt \
   && mkdir build && cd build \
   && cmake .. -DCMAKE_BUILD_TYPE=Release > /dev/null \
