@@ -10,6 +10,7 @@ input/
 output/
 cache/
 storage/
+storage-ext/
 
 # Секреты и окружение
 .env

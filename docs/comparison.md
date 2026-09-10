@@ -15,6 +15,9 @@
 | file IB → EDT | + (`conf2edt`) | + (`ib-to-edt`) |
 | Хранилище → CF/XML/EDT версии | - (нужен gitsync + DESIGNER) | + (`storage-to-*`, `ctool1cd`, без лицензии) |
 | Хранилище → git-история (1 версия = 1 коммит) | + (gitsync, DESIGNER+лицензия) | + (`storage-sync`, без DESIGNER) |
+| Хранилище расширений → git (в тот же monorepo, с базовой конфигурацией) | - | + (`storage-sync --extension --base`; патч ctool1cd depot-ver100) |
+| Расширения: cfe/xml/edt как разовые конвертации | + (`ext2edt`, `ext2cfe`, ...) | - (механизм реализован внутри storage-sync; отдельные команды — по запросу) |
+| Внешние обработки (EPF/ERF) | + (dp2xml/dp2edt, только DESIGNER) | - (нужен v8unpack — в плане) |
 | XML → IB (создание/загрузка) | + (`conf2ib`) | - (обёртки ibcmd `infobase create/import` уже есть внутри pipeline) |
 | CF → IB | + (`conf2ib`) | - (см. выше) |
 | client/server IB | + (`/S...`, `V8_DB_SRV_*`) | частично (параметры реализованы, не проверено) |

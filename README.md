@@ -81,10 +81,41 @@ EDT workspace создаётся заново на каждый запуск —
 ```
 
 `storage-sync` возобновляемый: состояние (последняя синхронизированная
-версия) хранится в `<worktree>/.storage-sync.json`; повторный запуск — 0
-коммитов. Проект кладётся в `<worktree>/<project-name>` (по умолчанию
-`configuration`). Сопоставление авторов — файл `--authors` формата
-`ИмяИзХранилища=Git Имя <email>`; без мапинга — `Имя <slug@--domain>`.
+версия **на каждый проект**) хранится в `<worktree>/.storage-sync.json`;
+повторный запуск — 0 коммитов. Проект кладётся в `<worktree>/<project-name>`
+(по умолчанию `configuration`). Сопоставление авторов — файл `--authors`
+формата `ИмяИзХранилища=Git Имя <email>`; без мапинга —
+`Имя <slug@--domain>`.
+
+### Хранилище расширений в тот же monorepo
+
+Отдельное хранилище расширения синкается **в тот же worktree** отдельным
+проектом, с базовой конфигурацией (`--base` — хранилище конфигурации или
+*.cf):
+
+```bash
+1c-convert storage-sync /storage-ext /work/output/storage-git \
+    --extension Расширение --base /storage --project-name extension
+```
+
+```
+storage-git/
+├── configuration/   # EDT-проект конфигурации (хранилище /storage)
+├── extension/       # EDT-проект расширения  (хранилище /storage-ext)
+└── .storage-sync.json   # {"projects": {"configuration": 4, "extension": 2}}
+```
+
+Шаг расширения по версии: `ctool1cd -drc N` → temp-ИБ с базовой
+конфигурацией → `ibcmd config load/export --extension=<имя>` (механика
+upstream `ext2xml.cmd`) → `1cedtcli import` в отдельный каталог. Имя
+расширения — register-имя в ИБ (параметр, как 3-й аргумент upstream); в EDT
+оба проекта в одном workspace ассоциируются сами. Маунт второго хранилища —
+`EXT_STORAGE_HOST_PATH` в `.env` (→ `/storage-ext`).
+
+> Примечание: хранилища расширений используют версию формата depot 100,
+> которую upstream `ctool1cd` не знает; в сборку образа включён
+> минимальный патч `docker/patches/tool1cd-depot-ver100.patch`
+> (100 трактуется как Ver7-layout, проверено на реальном хранилище).
 
 Хранилище монтируется read-only (`STORAGE_HOST_PATH` в `.env` → `/storage`)
 и перед обработкой копируется в `cache/tmp` (требуется `data/pack` рядом

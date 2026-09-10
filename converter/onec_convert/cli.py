@@ -269,6 +269,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--to-version", type=int, default=0, help="0 = latest")
     p.add_argument("--authors", type=path_arg, default=None, help="file: StorageName=Git Name <email>")
     p.add_argument("--domain", default="storage.local", help="email domain for unmapped authors")
+    p.add_argument(
+        "--extension",
+        default="",
+        help="sync a configuration extension storage (extension name)",
+    )
+    p.add_argument(
+        "--base",
+        default="",
+        help="base configuration for extension: configuration storage path or *.cf file",
+    )
     p.set_defaults(
         func=make_handler(
             lambda pl, a: pl.storage_sync(
@@ -279,6 +289,8 @@ def build_parser() -> argparse.ArgumentParser:
                 version_to=a.to_version,
                 authors_file=a.authors,
                 domain=a.domain,
+                extension=a.extension,
+                base=a.base,
             )
         )
     )

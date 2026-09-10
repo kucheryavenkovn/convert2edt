@@ -1,0 +1,12 @@
+{
+  "port": 55947,
+  "token": "c1c251f80c6a4976763aca32d0f31aca58b87bb92cb71942993b0ddbc65e5579",
+  "pid": 35964,
+  "workspaceFolder": "d:\\git\\convert2edt",
+  "createdAt": "2026-09-10T04:50:48.498Z",
+  "extensionVersion": "0.49.4",
+  "docs": "https://github.com/lekot/VScodePluginFor1CDev/blob/main/docs/features/agent-api/agent-skill.md",
+  "quickstart": "POST http://127.0.0.1:<port>/command с заголовком Authorization: Bearer <token>, телом {\"name\":\"1c-metadata-tree.agent.<cmd>\",\"args\":{...}}. Whitelist: /^1c-metadata-tree\\.agent(\\.debug|\\.forms|\\.skd|\\.xdto)?\\.[a-zA-Z]+$/. Для работы с формами используй agent.forms.start с debuggeeType='webServer' или dbPath → потом playwright на webServerUrl. XDTO: agent.xdto.listPackages/getPackage/exportXsd/importXsd/createFromXsd/compare/merge. Отладка BSL — agent.debug.start (debuggeeType='webServer' чтобы агент мог управлять формой; thinClient — нативное окно Windows, недоступно без ui-test).",
+  "helperScriptPath": "c:\\Users\\tux\\.vscode\\extensions\\1c-dev.1c-metadata-tree-vscode-0.49.4\\resources\\agent-bridge\\call.sh",
+  "discoverScriptPath": "c:\\Users\\tux\\.vscode\\extensions\\1c-dev.1c-metadata-tree-vscode-0.49.4\\resources\\agent-bridge\\discover.sh"
+}

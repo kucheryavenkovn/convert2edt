@@ -50,10 +50,16 @@ def resolve_author(version, users: dict[str, str], authors: dict[str, str], doma
 def read_state(path: Path) -> dict:
     if path.is_file():
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            state = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return {}
-    return {}
+            return {"projects": {}}
+        if isinstance(state, dict) and "projects" not in state:
+            last = state.get("last_version", 0)
+            return {"projects": {"configuration": last}}
+        if isinstance(state, dict):
+            state.setdefault("projects", {})
+            return state
+    return {"projects": {}}
 
 
 def write_state(path: Path, state: dict) -> None:
@@ -211,6 +217,16 @@ class Pipeline:
         if not path.is_file() or path.stat().st_size == 0:
             raise RuntimeError(f"result file was not created or is empty: {path}")
 
+    def edt_import_flow(self, xml: Path, dst_project: Path) -> None:
+        ws = self.workspace(dst_project)
+        dst_project.mkdir(parents=True, exist_ok=True)
+        self.clean_edt_project_dst(dst_project)
+        version = self.cfg.effective_v8_version()
+        self.edt.import_project(ws, xml, dst_project, version=version)
+        self.assert_edt_project(dst_project)
+        self.edt.clean_up_source(ws, dst_project)
+        self.assert_edt_project(dst_project)
+
     def need_sync(self, dst_xml: Path, mode: str) -> bool:
         if mode == "force":
             return True
@@ -286,14 +302,7 @@ class Pipeline:
     def xml_to_edt(self, src_xml: Path, dst_project: Path) -> None:
         def steps() -> None:
             self.require_kind(detect_source(str(src_xml)), "xml")
-            ws = self.workspace(dst_project)
-            dst_project.mkdir(parents=True, exist_ok=True)
-            self.clean_edt_project_dst(dst_project)
-            version = self.cfg.effective_v8_version()
-            self.edt.import_project(ws, src_xml, dst_project, version=version)
-            self.assert_edt_project(dst_project)
-            self.edt.clean_up_source(ws, dst_project)
-            self.assert_edt_project(dst_project)
+            self.edt_import_flow(src_xml, dst_project)
             info(f"result: {dst_project}")
 
         self.run("xml-to-edt", steps)
@@ -322,14 +331,7 @@ class Pipeline:
             info("exporting configuration to 1C:Designer XML...")
             self.ibcmd.config_export(temp.ibcmd_data, self.file_ib(ib), xml)
             self.assert_xml_dir(xml)
-            ws = self.workspace(dst_project)
-            dst_project.mkdir(parents=True, exist_ok=True)
-            self.clean_edt_project_dst(dst_project)
-            version = self.cfg.effective_v8_version()
-            self.edt.import_project(ws, xml, dst_project, version=version)
-            self.assert_edt_project(dst_project)
-            self.edt.clean_up_source(ws, dst_project)
-            self.assert_edt_project(dst_project)
+            self.edt_import_flow(xml, dst_project)
             info(f"result: {dst_project}")
 
         self.run("cf-to-edt", steps)
@@ -379,14 +381,7 @@ class Pipeline:
             info("exporting configuration to 1C:Designer XML...")
             self.ibcmd.config_export(temp.ibcmd_data, source, xml)
             self.assert_xml_dir(xml)
-            ws = self.workspace(dst_project)
-            dst_project.mkdir(parents=True, exist_ok=True)
-            self.clean_edt_project_dst(dst_project)
-            version = self.cfg.effective_v8_version()
-            self.edt.import_project(ws, xml, dst_project, version=version)
-            self.assert_edt_project(dst_project)
-            self.edt.clean_up_source(ws, dst_project)
-            self.assert_edt_project(dst_project)
+            self.edt_import_flow(xml, dst_project)
             info(f"result: {dst_project}")
 
         self.run("ib-to-edt", steps)
@@ -445,32 +440,79 @@ class Pipeline:
         version_to: int = 0,
         authors_file: Path | None = None,
         domain: str = "storage.local",
+        extension: str = "",
+        base: str = "",
     ) -> None:
         def steps() -> None:
             temp, tool, local_db, versions, users = self.storage_prepare(
                 storage, "storage-sync"
             )
             authors = load_authors(authors_file)
-            state_file = worktree / ".storage-sync.json"
+            state_file = worktree / STATE_FILE
             state = read_state(state_file)
-            last_done = state.get("last_version", 0)
+            last_done = state["projects"].get(project_name, 0)
             start = version_from or (last_done + 1)
             end = version_to or versions[-1].number
             todo = [v for v in versions if start <= v.number <= end]
-            info(f"syncing versions {start}..{end} ({len(todo)} to do, last done {last_done})")
+            info(
+                f"syncing {project_name}: versions {start}..{end} "
+                f"({len(todo)} to do, last done {last_done})"
+            )
             project_dir = worktree / project_name
             ensure_git_repo(worktree)
+            base_cf = None
+            if extension:
+                base_cf = self.resolve_base_cf(base, temp)
+                info(f"extension mode: name={extension}, base={base_cf or 'empty configuration'}")
             for v in todo:
                 info(f"--- version {v.number}: {v.comment or '(no comment)'}")
                 cf = temp.root / f"ver-{v.number}.cf"
                 tool.dump_config(local_db, v.number, cf)
-                self.cf_to_edt(cf, project_dir)
+                if extension:
+                    xml = self.extension_to_xml(cf, extension, temp, base_cf, v.number)
+                    self.edt_import_flow(xml, project_dir)
+                else:
+                    self.cf_to_edt(cf, project_dir)
                 author = resolve_author(v, users, authors, domain)
                 commit_version(worktree, project_name, v, author)
-                write_state(state_file, {"last_version": v.number})
+                state["projects"][project_name] = v.number
+                write_state(state_file, state)
             info(f"sync done: {todo[-1].number if todo else last_done} -> {worktree}")
 
         self.run("storage-sync", steps)
+
+    def resolve_base_cf(self, base: str, temp: TempArea) -> Path | None:
+        from .tool1cd import Tool1CD, locate_storage_db, prepare_local_copy
+
+        if not base:
+            return None
+        path = Path(base)
+        if path.is_file() and path.suffix.lower() == ".cf":
+            return path
+        db = locate_storage_db(base)
+        local_db = prepare_local_copy(db, temp.root / "base")
+        base_cf = temp.root / "base.cf"
+        info(f"dumping base configuration from {base} (latest version)...")
+        Tool1CD(self.cfg).dump_config(local_db, 0, base_cf)
+        return base_cf
+
+    def extension_to_xml(
+        self, cfe_file: Path, extension: str, temp: TempArea, base_cf: Path | None, version: int
+    ) -> Path:
+        ib = temp.root / f"ext_ib_{version}"
+        data = temp.root / f"ext_data_{version}"
+        data.mkdir(parents=True, exist_ok=True)
+        if base_cf is not None:
+            self.ibcmd.create_from_cf(data, ib, base_cf)
+        else:
+            self.ibcmd.create_empty(data, ib)
+        info(f"loading extension {extension} into temporary infobase...")
+        self.ibcmd.config_load(data, self.file_ib(ib), cfe_file, extension=extension)
+        xml = temp.root / f"ext_xml_{version}"
+        info(f"exporting extension {extension} to 1C:Designer XML...")
+        self.ibcmd.config_export(data, self.file_ib(ib), xml, extension=extension)
+        self.assert_xml_dir(xml)
+        return xml
 
 
 def platform_version() -> str:

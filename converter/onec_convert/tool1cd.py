@@ -74,7 +74,12 @@ class Tool1CD:
 
     def dump_config(self, db: Path, version: int, out_cf: Path) -> None:
         out_cf.parent.mkdir(parents=True, exist_ok=True)
-        self._run(db, ["-drc", str(version), str(out_cf)])
+        dump_path = out_cf
+        if out_cf.suffix.lower() != ".cf":
+            dump_path = out_cf.with_name(out_cf.stem + ".cf")
+        self._run(db, ["-drc", str(version), str(dump_path)])
+        if dump_path != out_cf:
+            dump_path.replace(out_cf)
         if not out_cf.is_file() or out_cf.stat().st_size == 0:
             raise Tool1CDError(f"ctool1cd did not create {out_cf}")
 

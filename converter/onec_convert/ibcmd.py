@@ -56,16 +56,50 @@ class Ibcmd:
             ]
         )
 
+    def create_empty(self, data_dir: Path, ib_path: Path) -> None:
+        run_tool(
+            [
+                "ibcmd",
+                "infobase",
+                "create",
+                f"--data={data_dir}",
+                f"--db-path={ib_path}",
+                "--create-database",
+            ]
+        )
+
+    def config_load(
+        self, data_dir: Path, ib: Source, cf_file: Path, extension: str = ""
+    ) -> None:
+        flags = ["--force"]
+        if extension:
+            flags.append(f"--extension={extension}")
+        run_tool(
+            [
+                "ibcmd",
+                "infobase",
+                "config",
+                "load",
+                f"--data={data_dir}",
+                *self._conn_args(ib),
+                *flags,
+                str(cf_file),
+            ]
+        )
+
     def config_export(
         self,
         data_dir: Path,
         ib: Source,
         xml_dir: Path,
         sync: bool = False,
+        extension: str = "",
     ) -> None:
         flags = ["--force"]
         if sync:
             flags.append("--sync")
+        if extension:
+            flags.append(f"--extension={extension}")
         run_tool(
             [
                 "ibcmd",
@@ -79,7 +113,12 @@ class Ibcmd:
             ]
         )
 
-    def config_save(self, data_dir: Path, ib: Source, cf_file: Path) -> None:
+    def config_save(
+        self, data_dir: Path, ib: Source, cf_file: Path, extension: str = ""
+    ) -> None:
+        flags = []
+        if extension:
+            flags.append(f"--extension={extension}")
         run_tool(
             [
                 "ibcmd",
@@ -88,6 +127,7 @@ class Ibcmd:
                 "save",
                 f"--data={data_dir}",
                 *self._conn_args(ib),
+                *flags,
                 str(cf_file),
             ]
         )
