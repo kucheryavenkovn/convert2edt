@@ -139,13 +139,20 @@ def sync_all(cfg: Config, config_path: Path) -> None:
             )
 
     conf = data.get("configuration") or {}
-    if conf.get("storage"):
+    if not conf.get("enabled", True):
+        info("configuration: шаг отключён (enabled = false)")
+    elif conf.get("storage"):
         step(
             f"configuration: {conf.get('project') or 'configuration'}",
             lambda: sync_section(conf, "configuration"),
         )
 
     for ext in data.get("extension") or []:
+        if not ext.get("enabled", True):
+            info(f"extension {ext.get('name') or ext.get('project') or '?'}: шаг отключён (enabled = false)")
+            continue
+        if not ext.get("storage"):
+            continue
         step(
             f"extension: {ext.get('project') or 'extension'}",
             lambda ext=ext: sync_section(ext, "extension", extension=ext.get("name") or ""),
