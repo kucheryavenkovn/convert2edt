@@ -1,16 +1,30 @@
 """Движок gitsync: хранилище 1С -> git через oscript-library/gitsync.
 
 Альтернатива нативному конвейеру (ctool1cd + ibcmd + 1cedtcli):
-  * версии хранилища читает КОНФИГУРАТОР 1С (1cv8 DESIGNER), не ctool1cd;
+  * версии хранилища читает gitsync (конфигуратор 1С или плагин tool1CD —
+    см. storage_backend); хранилища РАСШИРЕНИЙ поддерживаются штатным
+    конфигуратором через `-Extension` (в т.ч. в `gitsync init -e`!);
   * XML -> EDT делает плагин gitsync `edtExport` (>= 2.0.1, через 1cedtcli);
   * git-историю (коммиты, авторы из AUTHORS, даты) формирует сам gitsync.
 
-Особенности (проверено локально, см. scripts/local/run-gitsync.ps1):
+Селективные бэкенды (конфиг [gitsync]):
+  * storage_backend = configurator | ctool1cd — чтение хранилища
+    (плагин tool1CD: только Windows — плагин тащит Windows-бинарники и в
+    Linux требует wine; расширения плагин не поддерживает);
+  * xml_backend = configurator | ibcmd — выгрузка конфигурации в XML
+    (плагин use-ibcmd, нативный ibcmd из образа/системы).
+
+Особенности (проверено локально и в Docker, см. scripts/local/run-gitsync.ps1):
   * workdir проекта ДОЛЖЕН с первого запуска содержать каталог `src`
     (issue oscript-library/gitsync-plugins#53): gitsync кладёт исходники в
     WORKDIR/src, если тот существует; EDT-проект живёт в src стабильно;
   * `gitsync init` конфликтует с edtExport (project-name не зарегистрирован
     для init) — на время init плагин отключается и включается обратно;
+  * хранилище расширения: init/sync обязаны получать -e (иначе платформа
+    отказывает «Соединение основной конфигурации с хранилищем расширений
+    конфигураций невозможно»); инкрементальный -update-дамп расширений у
+    платформы не работает («Объект метаданных ... не существует в
+    конфигурации») — для расширений плагин increment выключается;
   * OneScript 1.9.4: задание OSCRIPT_CONFIG=lib.additional выключает поиск
     библиотек в <gitsync>/oscript_modules — run-gitsync.ps1 зеркалит нужные
     пакеты (json, gitrunner, edtfind и др.) в tools/oscript/oscript_modules;
@@ -30,7 +44,8 @@ from .env import Config
 from .pipeline import STATS_FILE, append_stats, new_stats_run
 from .proc import info, run_tool
 
-EDT_EXPORT_PLUGIN = "edtExport"
+STORAGE_BACKENDS = ("configurator", "ctool1cd")
+XML_BACKENDS = ("configurator", "ibcmd")
 
 # Маркер начала обработки версии в выводе gitsync sync:
 #   "ИНФОРМАЦИЯ - Получаем исходники для версии 1, 11.09.2026 4:41:36"
@@ -73,10 +88,18 @@ class GitSync:
                 "opm install gitsync; плагин: gitsync plugins enable edtExport)"
             )
 
-    def _env(self, project_name: str, workspace: Path) -> dict:
+    def _env(self, project_name: str, workspace: Path, extension: str = "") -> dict:
         env = dict(os.environ)
         env["GITSYNC_PROJECT_NAME"] = project_name
         env["GITSYNC_WORKSPACE_LOCATION"] = str(workspace)
+        # GITSYNC_EXTENSION должна действовать на ВСЕ команды gitsync
+        # (init тоже: привязка хранилища расширения идёт с -Extension,
+        # без него платформа отказывает «Соединение основной конфигурации
+        # с хранилищем расширений конфигураций невозможно»)
+        if extension:
+            env["GITSYNC_EXTENSION"] = extension
+        else:
+            env.pop("GITSYNC_EXTENSION", None)
         oslib = _repo_tools_oslib()
         if oslib is not None:
             env["OSCRIPT_CONFIG"] = f"lib.additional={oslib}"
@@ -122,8 +145,8 @@ class GitSync:
             return base / "gitsync" / "plugins"
         return Path.home() / ".local" / "share" / "gitsync" / "plugins"
 
-    def _set_edt_export(self, enabled: bool) -> None:
-        """Включить/выключить плагин edtExport правкой plugins.json.
+    def _set_plugin(self, name: str, enabled: bool) -> None:
+        """Включить/выключить плагин gitsync правкой plugins.json.
 
         Команды `gitsync plugins enable/disable` в связке oscript 1.9.4 +
         gitsync 3.8.0 падают с TypeInitializationException Newtonsoft.Json,
@@ -137,9 +160,12 @@ class GitSync:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except ValueError:
                 data = {}
-        data["edtExport"] = enabled
+        data[name] = enabled
         catalog.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    def _set_edt_export(self, enabled: bool) -> None:
+        self._set_plugin("edtExport", enabled)
 
     def _ensure_git_repo(self, workdir: Path) -> None:
         # gitsync init может не создать .git; worktree внутри другого
@@ -172,19 +198,69 @@ class GitSync:
         extension: str = "",
         domain: str = "storage.local",
         workspace: Path | None = None,
+        storage_backend: str = "configurator",
+        xml_backend: str = "configurator",
     ) -> None:
-        """Синхронизировать хранилище в git-репозиторий workdir (src-layout)."""
+        """Синхронизировать хранилище в git-репозиторий workdir (src-layout).
+
+        storage_backend: configurator (штатный, поддерживает и хранилища
+        расширений через -Extension) | ctool1cd (плагин tool1CD; только
+        Windows, без лицензии на чтение хранилища; расширения НЕ умеет).
+        xml_backend: configurator (DESIGNER DumpConfigToFiles) | ibcmd
+        (плагин use-ibcmd, нативный ibcmd).
+        """
+        if storage_backend not in STORAGE_BACKENDS:
+            raise GitSyncError(
+                f"storage_backend должен быть {' или '.join(STORAGE_BACKENDS)}, "
+                f"получено: {storage_backend!r}"
+            )
+        if xml_backend not in XML_BACKENDS:
+            raise GitSyncError(
+                f"xml_backend должен быть {' или '.join(XML_BACKENDS)}, "
+                f"получено: {xml_backend!r}"
+            )
+        if storage_backend == "ctool1cd":
+            if extension:
+                raise GitSyncError(
+                    "плагин tool1CD не поддерживает хранилища расширений; "
+                    "для расширений используйте storage_backend = configurator "
+                    "или движок tool1cd"
+                )
+            if os.name != "nt":
+                raise GitSyncError(
+                    "плагин tool1CD выполняет виндовые бинарники (в Linux "
+                    "требуется wine — не используется); в Docker доступен "
+                    "только storage_backend = configurator"
+                )
+
         run = new_stats_run("gitsync", project_name, storage)
         run_start = monotonic()
         storage_path = self._prepare_storage(storage, project_name)
         info(f"gitsync: работаю с копией хранилища: {storage_path}")
+        info(
+            f"gitsync: бэкенды — чтение хранилища: {storage_backend}, "
+            f"выгрузка XML: {xml_backend}"
+        )
         src_dir = workdir / "src"
         src_dir.mkdir(parents=True, exist_ok=True)
         workspace = workspace or (self.cfg.temp_root / "gitsync-ws")
         temp_dir = self.cfg.temp_root / "gitsync-temp"
-        env = self._env(project_name, workspace)
+        env = self._env(project_name, workspace, extension)
+        if xml_backend == "ibcmd":
+            # плагин use-ibcmd требует рабочий каталог --data для ibcmd
+            ibcmd_data = temp_dir / "ibcmd-data"
+            ibcmd_data.mkdir(parents=True, exist_ok=True)
+            env["GITSYNC_IBCMD_DATA"] = str(ibcmd_data)
         v8 = self.cfg.effective_v8_version() or "8.3"
         global_opts = ["--v8version", v8, "--tempdir", str(temp_dir), "--domain-email", domain]
+
+        # детерминированное состояние плагинов на прогон:
+        #  * tool1CD/use-ibcmd — по выбранным бэкендам;
+        #  * increment — выключен для хранилищ расширений (инкрементальный
+        #    -update-дамп расширений не работает у платформы)
+        self._set_plugin("tool1CD", storage_backend == "ctool1cd")
+        self._set_plugin("use-ibcmd", xml_backend == "ibcmd")
+        self._set_plugin("increment", not extension)
 
         if not (src_dir / "VERSION").is_file():
             info(f"gitsync: инициализация workdir {workdir}")
@@ -192,7 +268,12 @@ class GitSync:
             # только для sync) — отключаем на время init
             self._set_edt_export(False)
             try:
-                self._run([*global_opts, "init", "-u", storage_user, str(storage_path), str(workdir)], env)
+                init_args = [*global_opts, "init", "-u", storage_user]
+                if extension:
+                    # init тоже должен знать, что хранилище — расширение
+                    init_args += ["-e", extension]
+                init_args += [str(storage_path), str(workdir)]
+                self._run(init_args, env)
             finally:
                 self._set_edt_export(True)
 

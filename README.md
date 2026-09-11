@@ -1,33 +1,33 @@
 # 1C CONVERTER
 
-Конвертация конфигураций 1С целиком внутри Linux Docker — официальными
-инструментами, без Windows, без DESIGNER, без Host Bridge:
+Конвертация конфигураций 1С официальными инструментами — в Linux Docker
+или локально на Windows, без Host Bridge и без GUI-сессий:
 
 ```
-                      1C CONVERTER
+                          1C CONVERTER
 
-            ┌──────────────────────────────┐
-            │         Linux Docker         │
-            │                              │
-            │   ibcmd          1cedtcli    │
-            │     │               │        │
-            │     └───── XML ──────┘       │
-            │                              │
-            │    thin orchestrator         │
-            │    (Python: 1c-convert)      │
-            └──────────────────────────────┘
+        Docker (Linux)                    Windows (локально)
+   ┌──────────────────────────┐   ┌──────────────────────────┐
+   │ ibcmd   1cedtcli  gitsync│   │ платформа 1С (ibcmd/1cv8)│
+   │ ctool1cd  + edtExport    │   │ 1C:EDT (1cedtcli)  git   │
+   │                          │   │ ctool1cd.exe  oscript    │
+   │  thin orchestrator       │   │  thin orchestrator       │
+   │  (Python: 1c-convert)    │   │  (Python: 1c-convert)    │
+   └──────────────────────────┘   └──────────────────────────┘
 
-                 ↙        ↓        ↘
-               CF        XML       EDT
-               (ИБ: file — сейчас, client/server — архитектурно готово)
+       хранилище 1С ──> CF ──> XML ──> EDT ──> git-история
+       движок tool1cd: без конфигуратора и лицензии (ctool1cd)
+       движок gitsync: официальный стек (+ инкрементально, быстрее)
 ```
 
 > Логика преобразования основана на подходах, уже реализованных в
 > [arkuznetsov/1CFilesConverter](https://github.com/arkuznetsov/1CFilesConverter).
 > Docker-сборка основана на проверенных подходах из
 > [ShadobaAI/kafka-tools](https://github.com/ShadobaAI/kafka-tools).
-> Проект не реализует собственные парсеры форматов 1С и использует официальные
-> `ibcmd` и `1cedtcli`.
+> Собственных парсеров форматов 1С нет: используются `ibcmd`, `1cedtcli`,
+> конфигуратор (для движка gitsync) и `ctool1cd` (GPL-3, реверс-инжиниринг
+> хранилища — наш [PR #295](https://github.com/e8tools/tool1cd/pull/295)
+> в upstream).
 
 ## Состав образа (дерево зависимостей)
 
@@ -35,17 +35,26 @@
 convert2edt/converter:latest          (Dockerfile, compose.yaml)
 │
 ├── debian:bookworm-slim ............... базовый образ (ARG BASE_IMAGE)
-│     └── java-17-openjdk, boost 1.74, zlib, git, python3 (пакеты Debian)
+│     └── java-17-openjdk, boost 1.74, zlib, git, python3, xvfb + openbox
+│         + x11vnc + dbus-x11 (GUI-стек для 1cv8, лицензия через VNC)
 │
 ├── 1С:Предприятие 8.3.27.2342 ......... закрытый дистрибутив (vendor/platform/)
 │     └── deb: common(+nls), server(+nls) -> /opt/1cv8/current -> ibcmd
+│
+├── клиент платформы (1cv8, DESIGNER) . закрытый дистрибутив (vendor/platform/,
+│     │  опционально: client_*.deb64.zip) — нужен движку gitsync
+│     │  (configurator-бэкенд) и license-gui; batch-режиму нужен X -> xvfb
+│     └── deb: client(+nls) -> /opt/1cv8/current/1cv8 (без thin-client)
 │
 ├── 1C:EDT 2026.1.3 offline ............ закрытый дистрибутив (vendor/edt/)
 │     └── 1ce-installer-cli -> /opt/1C/1CE/components/1cedtcli -> 1cedtcli
 │
 ├── e8tools/tool1cd @ 625ac1a (GPL-3) . собирается из исходников в builder-стадии
-│     └── ctool1cd + libtool1cd.so .... чтение хранилищ конфигураций
-│     └── изменения: только sed (GUI не собирается) — depot-ver100 уже в upstream (PR #295)
+│     └── ctool1cd + libtool1cd.so .... чтение хранилищ (depot ver100 — в upstream)
+│
+├── OneScript 1.9.4 + gitsync 3.8 ..... публичные источники (GitHub, hub.oscript.io)
+│     └── gitsync-plugins 2.0.3: edtExport (+ increment/limit/disable-support)
+│         плагин tool1CD НЕ используется (виндовые бинарники; wine не ставим)
 │
 └── converter/onec_convert (наш код) ... тонкая orchestration-обвязка (Python)
       └── алгоритмы: 1CFilesConverter (пере-реализация), схема Docker: kafka-tools
@@ -105,6 +114,21 @@ EDT workspace создаётся заново на каждый запуск —
 
 ### Цикл по версиям (хранилище → git)
 
+Два взаимозаменяемых движка (`[worktree] engine` в sync.toml, см. ниже):
+
+```
+tool1cd (по умолчанию, без конфигуратора и лицензии):
+    для каждой версии N:
+        ctool1cd -drc N            → ver-N.cf        (прямо из 1cv8ddb.1CD)
+        ibcmd: cf → temp IB → XML                   (без лицензии)
+        1cedtcli: XML → EDT (очистка + полный реимпорт)
+        git commit: автор/дата/комментарий версии N (из таблиц VERSIONS/USERS)
+
+gitsync (официальный стек, быстрее за счёт инкрементальности):
+    gitsync init/sync (конфигуратор читает хранилище; расширения — через -e)
+    → XML → плагин edtExport (1cedtcli) → git-коммиты сам gitsync
+```
+
 Повторный `1cedtcli import` в существующий проект EDT CLI **не поддерживает**:
 падает на перезаписи бинарных ресурсов (Picture.png и т.п.), причём exit code
 при этом может быть 0 — ошибка ловится нашей строгой проверкой результата.
@@ -113,15 +137,6 @@ EDT workspace создаётся заново на каждый запуск —
 (VCS-каталоги вроде `.git` сохраняются). Диффы между версиями вычисляет git:
 при фиксированной версии EDT вывод импорта детерминирован, поэтому в дифф
 попадают только реальные изменения конфигурации.
-
-```
-для каждой версии N хранилища:
-    1c-convert storage-sync <storage> <worktree>     # всё ниже — внутри
-        ctool1cd -drc N            → ver-N.cf        (прямо из 1cv8ddb.1CD, без платформы)
-        ibcmd: cf → temp IB → XML                   (без лицензии)
-        1cedtcli: XML → EDT (очистка + полный реимпорт)
-        git commit: автор/дата/комментарий версии N (из таблиц VERSIONS/USERS)
-```
 
 `storage-sync` возобновляемый: состояние (последняя синхронизированная
 версия **на каждый проект**) хранится в `<worktree>/.storage-sync.json`;
@@ -141,21 +156,22 @@ XML→EDT (`edt_sec`), commit. Для `gitsync` внутренние фазы и
 «Статистика прогонов»: таблица прогонов (движок/проект/версий/секунд/
 среднее на версию) + детализация последнего прогона по версиям.
 
-Замер на fixtures (5 версий конфигурации, EDT 2026.x):
+Полные результаты замеров всех вариантов (движки × бэкенды gitsync ×
+окружения Docker/Windows, конфигурации и расширения) — на отдельной
+странице: **[docs/benchmarks.md](docs/benchmarks.md)**.
 
-| окружение | tool1cd | gitsync |
-|---|---|---|
-| Windows (локально, EDT 2026.2) | 404.8 с (~81 с/версию, из них XML→EDT ≈ 76 с) | 216.4 с (~43 с/версию) |
-| Docker (образ, платформа 8.3.27.2342) | 318.8 с (~64 с/версию: dump 0.05 + XML ≈ 32 + EDT ≈ 29) | **161.6 с** (~30 с/версию) |
-
-gitsync быстрее за счёт инкрементального конвейера (плагин `increment` +
-`edtExport` использует dumplist), но требует лицензию (в Docker — через
-`license-gui`, см. выше) и не выгружает хранилища расширений.
+Кратко (fixtures, Docker, 5 версий конфигурации): tool1cd 318.8 с (~64 с/
+версию), gitsync configurator/configurator **161.6 с** (~30 с/версию,
+инкрементально), gitsync configurator/ibcmd 270.7 с. gitsync быстрее за
+счёт инкрементального конвейера, но требует лицензию при
+configurator-бэкенде (в Docker — через `license-gui`).
 
 ### Хранилище расширений в тот же monorepo
 
 Отдельное хранилище расширения синкается **в тот же worktree** отдельным
-проектом:
+проектом (работает **обоими движками**: tool1cd — depot v100 через ctool1cd;
+gitsync — штатно через `-Extension`, с автоматическим отключением плагина
+increment, чей `-update`-дамп расширений платформой не поддерживается):
 
 ```bash
 1c-convert storage-sync /storage-ext /work/output/storage-git \
@@ -219,7 +235,7 @@ Designer-XML** средствами `ibcmd + 1cedtcli` в headless невозм�
 отчетов и обработок»). Официальный путь с бинарником — 1cv8 DESIGNER
 (`/DumpExternalDataProcessorOrReportToFiles` /
 `/LoadExternalDataProcessorOrReportFromFiles`, как в upstream `dp2xml`/
-`dp2epf`) — доступен через Host Bridge (см. ниже) и требует лицензию.
+`dp2epf`; клиент платформы есть в образе и локально, нужна лицензия).
 Поэтому: бинарник → EDT-проект = сначала получите XML (одноразовый
 Designer-dump), далее всё автоматизировано.
 
@@ -235,7 +251,8 @@ Designer-dump), далее всё автоматизировано.
 ## Конфиг синхронизации (sync.toml)
 
 Единый конфиг путей для `sync-all` (копия `sync.toml.example`):
-`[worktree]` — git-репозиторий монорепо; `[configuration]` — хранилище
+`[worktree]` — git-репозиторий монорепо (+ `engine`); `[gitsync]` —
+селективные бэкенды gitsync-движка; `[configuration]` — хранилище
 конфигурации (`project` = имя каталога в worktree **и** имя EDT-проекта —
 можно любое); `[[extension]]` — хранилища расширений (сколько нужно), у
 каждого может быть `base_project` — базовый EDT-проект (обычно проект
@@ -248,15 +265,20 @@ Designer-dump), далее всё автоматизировано.
 
 | engine | Чтение версий хранилища | XML→EDT | Требования |
 |---|---|---|---|
-| `tool1cd` (по умолчанию) | `ctool1cd` напрямую из `1cv8ddb.1CD` | `ibcmd` + `1cedtcli` (наш конвейер) | без конфигуратора и лицензии |
-| `gitsync` | конфигуратор 1С (DESIGNER) через oscript-library/gitsync | плагин gitsync `edtExport` → `1cedtcli` | oscript + gitsync + платформа 1С + EDT; см. `scripts/local/run-gitsync.ps1` |
+| `tool1cd` (по умолчанию) | `ctool1cd` напрямую из `1cv8ddb.1CD` (в т.ч. хранилища расширений, depot v100) | `ibcmd` + `1cedtcli` (наш конвейер) | без конфигуратора и лицензии |
+| `gitsync` | конфигуратор 1С или плагин `tool1CD` — см. `[gitsync] storage_backend` | плагин gitsync `edtExport` → `1cedtcli` | oscript + gitsync + EDT; при configurator-бэкендах — 1cv8 и лицензия |
 
-Ограничение движка `gitsync`: хранилища **расширений** не поддерживаются
-(gitsync подключает конфигуратор к хранилищу как к хранилищу основной
-конфигурации — «Соединение основной конфигурации с хранилищем расширений
-конфигураций невозможно»; проверено на gitsync 3.5.4 Windows и 3.8.0 Docker,
-плагин tool1CD расширения тоже не поддерживает) — расширения выгружайте
-движком `tool1cd`.
+Селективные бэкенды gitsync (секция `[gitsync]`, дефолты `configurator`):
+
+| этап | `configurator` | альтернатива |
+|---|---|---|
+| чтение хранилища (`storage_backend`) | штатный конфигуратор (1cv8); **хранилища расширений поддерживаются штатно через `-Extension`** (в т.ч. `gitsync init -e`); нужна лицензия | `ctool1cd` — плагин `tool1CD`: читает `1cv8ddb.1CD` напрямую; только Windows (плагин тащит виндовые бинарники; в Docker без wine недоступен), хранилища расширений плагин не умеет |
+| выгрузка XML (`xml_backend`) | `DESIGNER /DumpConfigToFiles` | `ibcmd` — плагин `use-ibcmd` (нативный) |
+
+Хранилища расширений через gitsync: `init`/`sync` получают `-e`, плагин
+`increment` автоматически отключается (инкрементальный `-update`-дамп
+расширений платформой не поддерживается — «Объект метаданных … не существует
+в конфигурации»; проверено на платформе 8.3.27.2342, gitsync 3.8.0).
 
 Отличия движка `gitsync`: git-историю формирует сам gitsync (файл AUTHORS,
 коммиты на русском), каждый проект — **отдельный** git-репозиторий
@@ -271,10 +293,10 @@ Designer-dump), далее всё автоматизировано.
 
 В образ встраиваются OneScript + gitsync + плагин `edtExport` (нативно,
 без wine: виндовые бинарники плагина `tool1CD` не используются) и — при
-наличии `client_*.deb64.zip` в `dist/` (см. [dist/README.md](dist/README.md),
-в git не попадает) — **клиент платформы** `1cv8`: gitsync читает хранилище
-классическим путём через конфигуратор. Сборка: `docker compose build
-converter` (build-context `clientdistr`).
+наличии `client_*.deb64.zip` в `vendor/platform/` (см.
+[vendor/README.md](vendor/README.md)) — **клиент платформы** `1cv8`:
+gitsync читает хранилище классическим путём через конфигуратор. Сборка:
+`docker compose build converter`.
 
 Конфигуратору при открытии ИБ нужна **лицензия** (это требование 1С, не
 оркестратора; tool1cd-движок работает без неё). Варианты:
@@ -305,11 +327,14 @@ converter` (build-context `clientdistr`).
 
 ### Помощники создания конфига
 
+Оба помощника поддерживают выбор движка и бэкендов gitsync:
+
 ```bash
 # CLI-мастер (интерактивный опрос, пишет /work/sync.toml)
 docker compose run --rm -T converter 1c-convert init-config
 
-# Веб-помощник: форма в браузере, предпросмотр и сохранение sync.toml
+# Веб-помощник: форма в браузере, предпросмотр и сохранение sync.toml,
+# ход синхронизации в живую + раздел «Статистика прогонов (A/B)»
 docker compose run --rm --publish 127.0.0.1:18080:8080 converter 1c-convert config-server
 # → http://127.0.0.1:18080
 ```
@@ -329,8 +354,12 @@ docker compose run --rm --publish 127.0.0.1:18080:8080 converter 1c-convert conf
 | Переменная | Что задаёт |
 |---|---|
 | `VENDOR_DIR` | каталог закрытых дистрибутивов 1С для сборки (named context, в образ не попадают; по умолчанию `./vendor`) |
+| `CLIENT_DIST_DIR` | каталог с клиентом платформы `client_*.deb64.zip` для gitsync-движка (по умолчанию `./dist`; без него клиент в образ не ставится — gitsync/configurator в Docker недоступны) |
 | `BASE_IMAGE` | родительский базовый образ (по умолчанию `debian:bookworm-slim`) |
 | `TOOL1CD_REF` | коммит e8tools/tool1cd — исходники ctool1cd качаются с GitHub при сборке (по умолчанию `625ac1a`, с depot ver100) |
+| `GITSYNC_SUPPORT` | 1 = ставить OneScript + gitsync + плагины в образ (по умолчанию 1) |
+| `OSCRIPT_VERSION` | версия OneScript в образе (по умолчанию 1.9.4) |
+| `V8_MAC_ADDRESS` | MAC контейнера — программная лицензия привязана к MAC; не менять после активации license-gui (по умолчанию `02:42:AC:11:00:99`) |
 | `PLATFORM_VERSION` | метка образа (фактическая платформа — из `vendor/platform/`) |
 | `EDT_VERSION` | метка образа (фактический EDT — из `vendor/edt/`) |
 | `EDT_PLATFORM_SUPPORT` | какой platform-support оставить в образе (напр. `8.3.27`) |
@@ -354,26 +383,67 @@ tool1cd приходят из публичных источников (`docker.i
 
 Пример: `$env:CONVERT_PLATFORM_MASK='8.3.'; $env:CONVERT_EDT_VERSION='2026.2.0'; .\run-local.ps1`
 
-## Локальный запуск без Docker (Windows)
+## Зависимости и установка
 
-Проверка зависимостей (что установлено и что поставить — с подсказками):
+Единый каталог зависимостей — по трём сценариям. Что установлено и чего
+не хватает на конкретной машине — покажет `scripts\local\check-deps.ps1`
+(секция `-Engine gitsync` проверяет стек oscript/gitsync/edtfind).
+
+### A. Сборка Docker-образа (хост: любая ОС)
+
+| Зависимость | Зачем | Установка |
+|---|---|---|
+| Docker Desktop / Engine (BuildKit) | сборка и запуск | docker.com; в Docker Desktop включить BuildKit (по умолчанию) |
+| `vendor/platform/deb64_8_3_27_*.zip` | платформа: `ibcmd` (обязательно) | releases.1c.ru → Platform83 |
+| `vendor/edt/1c_edt_distr_offline_*.tar.gz` | 1C:EDT: `1cedtcli` (обязательно) | releases.1c.ru → DevelopmentTools10 |
+| `vendor/platform/client_8_3_27_*.deb64.zip` | клиент `1cv8` — движок `gitsync` + `license-gui` (опционально) | releases.1c.ru → Platform83 → «Клиентская часть для Linux» |
+
+Из сети при сборке качаются только публичные исходники: `debian:bookworm-slim`
+(docker.io), e8tools/tool1cd (GitHub), OneScript + gitsync + плагины
+(GitHub / hub.oscript.io) — пины в `.env` (`TOOL1CD_REF`, `OSCRIPT_VERSION`).
 
 ```powershell
-scripts\local\check-deps.ps1            # оба движка; -Engine tool1cd|gitsync
+docker compose build converter
 ```
 
-| Зависимость | Зачем | Как поставить |
+### B. Запуск в Docker (на хосте больше ничего не нужно)
+
+Всё нужное уже в образе. Дополнительно — только данные:
+
+| Что | Когда нужно | Как |
 |---|---|---|
-| Python 3.11+ | оркестратор `1c-convert` (нужен tomllib) | python.org |
+| `STORAGE_HOST_PATH` / `EXT_STORAGE_HOST_PATH` в `.env` | storage-команды | путь к хранилищу на хосте (монтируется ro) |
+| лицензия 1С | только движок `gitsync` (configurator-бэкенд) и Designer-операции | разово `license-gui` через VNC (см. ниже) или `*.lic` в `./licenses`; tool1cd-движок работает без лицензии |
+| `V8_MAC_ADDRESS` | после активации программной лицензии | не менять (лицензия привязана к MAC) |
+
+### C. Запуск без Docker (Windows)
+
+| Зависимость | Зачем | Установка |
+|---|---|---|
+| Python 3.11+ | оркестратор `1c-convert` (tomllib) | python.org |
 | git | коммиты версий | git-scm.com |
-| Платформа 1С 8.3 (ibcmd + 1cv8) | XML-выгрузка; gitsync читает хранилище конфигуратором (лицензия не нужна) | releases.1c.ru |
-| 1C:EDT (1cedtcli) | XML ↔ EDT | releases.1c.ru (offline-установщик) |
-| Axiom JDK Full 21/25 | Java для EDT | ставится вместе с EDT (`components\axiom-jdk-full-*`) |
-| ctool1cd.exe | движок `tool1cd`: чтение хранилища | автосборка run-local.ps1 из upstream (нужен MSYS2/mingw) или релиз beta2 |
-| MSYS2 + mingw | сборка ctool1cd с depot ver100 (расширения) | msys2.org (опционально) |
-| oscript + opm | движок `gitsync` | oscript.io |
-| gitsync + gitsync-plugins ≥ 2.0.1 (edtExport) + edtfind | движок `gitsync` | `opm install gitsync`; `gitsync plugins install gitsync-plugins@2.0.3`; `gitsync plugins enable edtExport`; edtfind ставит run-gitsync.ps1 (локально в `tools\oscript`) |
-| Docker | только fallback-шим для неответившего 1cedtcli | опционально |
+| Платформа 1С 8.3 (ibcmd + 1cv8) | ibcmd: XML-выгрузка (tool1cd-движок, без лицензии); 1cv8: configurator-бэкенд gitsync (операции с ИБ требуют лицензию) | releases.1c.ru |
+| 1C:EDT (1cedtcli) | XML ↔ EDT | releases.1c.ru (offline-установщик; кладёт `1c-edt-*` и axiom-jdk в `1C\1CE\components`) |
+| ctool1cd.exe | движок `tool1cd`: чтение хранилища | ничего не ставить: run-local.ps1 соберёт из upstream (нужен MSYS2/mingw) или возьмёт релиз beta2 |
+| oscript + opm | движок `gitsync` | oscript.io (или ovm) |
+| gitsync + gitsync-plugins ≥ 2.0.1 (edtExport) + edtfind | движок `gitsync` | `opm install gitsync`; плагины: `gitsync plugins install gitsync-plugins@2.0.3` + `gitsync plugins enable edtExport` (или всё ставит `run-gitsync.ps1` сам, edtfind — локально в `tools\oscript`) |
+
+```powershell
+scripts\local\check-deps.ps1     # проверка с подсказками, что поставить
+scripts\local\sync.cmd           # sync-all по scripts\local\sync.local.toml
+scripts\local\run-gitsync.cmd    # gitsync-движок одной командой (без конфига)
+```
+
+Результаты замеров всех вариантов (движки × бэкенды × окружения) — в
+[docs/benchmarks.md](docs/benchmarks.md).
+
+## Локальный запуск без Docker (Windows) — детали
+
+Оба движка и все бэкенды работают и локально: движок задаётся в
+`scripts\local\sync.local.toml` (`engine = "tool1cd" | "gitsync"` + секция
+`[gitsync]` с `storage_backend`/`xml_backend`). Исключение:
+`storage_backend = "ctool1cd"` (плагин tool1CD) доступен **только на
+Windows** — в Linux он требует wine, который мы не используем.
 
 `run-local.ps1` — тот же конвейер нативными инструментами:
 
@@ -419,10 +489,13 @@ edtExport — баг плагина 2.x) и `gitsync sync`. Тот же движ
 
 ## Быстрый старт
 
+### Docker
+
 ```powershell
 # 1. дистрибутивы (см. vendor/README.md)
 #    vendor/platform/deb64_8_3_27_*.zip
 #    vendor/edt/1c_edt_distr_offline_*_linux_x86_64.tar.gz
+#    vendor/platform/client_8_3_27_*.deb64.zip  # опционально: gitsync-движок
 
 # 2. сборка
 docker compose build converter
@@ -448,6 +521,26 @@ cp sync.toml.example sync.toml   # пути уже указывают на fixtu
 docker compose run --rm converter sync-all
 ```
 
+### gitsync-движок в Docker (одноразовая подготовка лицензии)
+
+```powershell
+# клиент платформы должен быть в vendor/platform/ (пересобрать образ, если добавили)
+docker compose run --rm -p 127.0.0.1:15900:5900 converter license-gui
+# → VNC-клиент на 127.0.0.1:15900 → «Получить программную лицензию»
+# лицензия живёт в volume v8home + ./licenses, MAC зафиксирован
+
+# затем в sync.toml: engine = "gitsync" (+ секция [gitsync] при необходимости)
+docker compose run --rm converter sync-all
+```
+
+### Локально на Windows (без Docker)
+
+```powershell
+scripts\local\check-deps.ps1                    # что стоит / что добить
+scripts\local\sync.cmd                          # sync-all по sync.local.toml
+scripts\local\run-gitsync.cmd                   # или: gitsync-движок напрямую
+```
+
 Прямой вызов инструментов образа:
 
 ```bash
@@ -459,15 +552,23 @@ docker compose run --rm converter 1c-convert info
 ## Структура
 
 ```
-Dockerfile                  # один образ: платформа (ibcmd) + EDT (1cedtcli) + 1c-convert
-compose.yaml                # сервис converter (input/output/cache монтируются с host)
-docker/scripts/             # install-platform.sh, install-edt.sh (из kafka-tools, Apache-2.0)
-converter/onec_convert/     # тонкий оркестратор (Python, без логики конвертации)
-vendor/                     # официальные дистрибутивы 1С (не в git; в образ — через named context)
-tests/fixtures/             # тестовая конфигурация 1Cv8.cf (из 1CFilesConverter, MPL-2.0)
+Dockerfile                  # один образ: платформа (ibcmd + 1cv8) + EDT + ctool1cd
+                             # + OneScript/gitsync + GUI/VNC-стек для license-gui
+compose.yaml                # сервис converter (input/output/cache монтируются с host;
+                             # volume v8home — программная лицензия, MAC зафиксирован)
+docker/scripts/             # install-platform.sh, install-edt.sh (kafka-tools, Apache-2.0),
+                             # install-gitsync.sh (oscript+gitsync+плагины), license-gui.sh (VNC)
+converter/onec_convert/     # тонкий оркестратор (Python): pipeline (tool1cd-движок),
+                             # gitsync.py (gitsync-движок + бэкенды), syncall, initconfig (TUI+web)
+scripts/local/              # Windows-режим без Docker: run-local, run-gitsync, check-deps,
+                             # sync.local.toml(.example), build-ctool1cd-mingw.sh
+vendor/                     # закрытые дистрибутивы 1С: deb64 + клиент + EDT (не в git)
+sync.toml.example           # шаблон конфига синхронизации (engine + [gitsync])
+tests/fixtures/             # тестовая конфигурация 1Cv8.cf + хранилища crs/cf, crs/ext
 tests/smoke/                # smoke test CF → XML → EDT → XML → CF
 legacy/designer-host-bridge/# старая архитектура (DESIGNER + Windows Host Bridge) — deprecated
 docs/comparison.md          # сравнение возможностей с 1CFilesConverter
+docs/benchmarks.md          # результаты замеров: движки × бэкенды × окружения
 THIRD_PARTY_NOTICES.md      # лицензионные уведомления upstream
 ```
 

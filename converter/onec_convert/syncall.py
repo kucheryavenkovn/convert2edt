@@ -74,6 +74,27 @@ def sync_all(cfg: Config, config_path: Path) -> None:
         )
     info(f"engine: {engine}")
 
+    # [gitsync] — селективные бэкенды gitsync-движка:
+    #   storage_backend = configurator | ctool1cd (плагин tool1CD; Windows-only)
+    #   xml_backend     = configurator | ibcmd     (плагин use-ibcmd)
+    gitsync_conf = data.get("gitsync") or {}
+    storage_backend = (gitsync_conf.get("storage_backend") or "configurator").strip().lower()
+    xml_backend = (gitsync_conf.get("xml_backend") or "configurator").strip().lower()
+    if engine == "gitsync":
+        from .gitsync import STORAGE_BACKENDS, XML_BACKENDS
+
+        if storage_backend not in STORAGE_BACKENDS:
+            raise SyncConfigError(
+                f"[gitsync] storage_backend must be one of {STORAGE_BACKENDS}, "
+                f"got: {storage_backend!r}"
+            )
+        if xml_backend not in XML_BACKENDS:
+            raise SyncConfigError(
+                f"[gitsync] xml_backend must be one of {XML_BACKENDS}, "
+                f"got: {xml_backend!r}"
+            )
+        info(f"gitsync backends: storage={storage_backend}, xml={xml_backend}")
+
     authors_file = worktree_conf.get("authors_file") or None
     domain = worktree_conf.get("domain") or "storage.local"
 
@@ -103,6 +124,8 @@ def sync_all(cfg: Config, config_path: Path) -> None:
                 storage_pwd=section.get("storage_pwd") or "",
                 extension=extension,
                 domain=domain,
+                storage_backend=storage_backend,
+                xml_backend=xml_backend,
             )
         else:
             pipeline.storage_sync(

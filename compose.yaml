@@ -9,7 +9,6 @@ services:
       dockerfile: Dockerfile
       additional_contexts:
         distr: ${VENDOR_DIR:-./vendor}
-        clientdistr: ${CLIENT_DIST_DIR:-./dist}
       args:
         BASE_IMAGE: ${BASE_IMAGE:-debian:bookworm-slim}
         TOOL1CD_REF: ${TOOL1CD_REF:-625ac1a47b6ed63bba2848842daf1909813f84d4}

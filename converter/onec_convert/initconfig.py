@@ -15,7 +15,7 @@ CONFIG_TEMPLATE = """# sync.toml — сгенерировано 1c-convert init-
 path = "{worktree}"
 engine = "{engine}"
 {authors_line}
-
+{gitsync_section}
 [configuration]
 storage = "{config_storage}"
 project = "{config_project}"
@@ -34,6 +34,8 @@ base_project = "{base_project}"
 DEFAULTS = {
     "worktree": "/work/output/storage-git",
     "engine": "tool1cd",
+    "gitsync_storage_backend": "configurator",
+    "gitsync_xml_backend": "configurator",
     "authors_file": "",
     "domain": "storage.local",
     "config_storage": "/work/fixtures/crs/cf",
@@ -50,6 +52,12 @@ def render_toml(data: dict) -> str:
     engine = (data.get("engine") or DEFAULTS["engine"]).strip().lower()
     if engine not in ("tool1cd", "gitsync"):
         raise ValueError(f"engine должен быть tool1cd или gitsync, получено: {engine}")
+    storage_backend = (data.get("gitsync_storage_backend") or "configurator").strip().lower()
+    xml_backend = (data.get("gitsync_xml_backend") or "configurator").strip().lower()
+    if storage_backend not in ("configurator", "ctool1cd"):
+        raise ValueError("gitsync storage_backend должен быть configurator или ctool1cd")
+    if xml_backend not in ("configurator", "ibcmd"):
+        raise ValueError("gitsync xml_backend должен быть configurator или ibcmd")
     authors_file = data.get("authors_file") or ""
     domain = data.get("domain") or "storage.local"
     config_storage = data.get("config_storage") or DEFAULTS["config_storage"]
@@ -60,6 +68,18 @@ def render_toml(data: dict) -> str:
         authors_line = f'authors_file = "{authors_file}"\ndomain = "{domain}"'
     else:
         authors_line = f'# authors_file = "/work/authors.txt"\ndomain = "{domain}"'
+
+    gitsync_section = ""
+    if engine == "gitsync":
+        gitsync_section = (
+            "\n[gitsync]\n"
+            "# чтение хранилища: configurator (штатно, расширения через -Extension;\n"
+            "# нужна лицензия) | ctool1cd (плагин tool1CD, без лицензии на чтение;\n"
+            "# только Windows, без расширений)\n"
+            f'storage_backend = "{storage_backend}"\n'
+            "# выгрузка в XML: configurator (DESIGNER) | ibcmd (плагин use-ibcmd)\n"
+            f'xml_backend = "{xml_backend}"\n'
+        )
 
     extension_sections = ""
     for ext in data.get("extensions") or []:
@@ -86,6 +106,7 @@ def render_toml(data: dict) -> str:
         worktree=worktree,
         engine=engine,
         authors_line=authors_line,
+        gitsync_section=gitsync_section,
         config_storage=config_storage,
         config_project=config_project,
         extension_sections=extension_sections,
@@ -122,6 +143,16 @@ def wizard() -> dict:
         ),
         "extensions": [],
     }
+    if data["engine"].strip().lower() == "gitsync":
+        print("\n--- бэкенды gitsync ---")
+        data["gitsync_storage_backend"] = _ask(
+            "чтение хранилища (configurator|ctool1cd; ctool1cd — только "
+            "Windows, без расширений)",
+            "configurator",
+        )
+        data["gitsync_xml_backend"] = _ask(
+            "выгрузка XML (configurator|ibcmd)", "configurator"
+        )
 
     index = 1
     while True:
@@ -285,7 +316,17 @@ PAGE = """<!doctype html>
  <label>Движок выгрузки хранилищ
   <select name="engine">
    <option value="tool1cd" selected>tool1cd — ctool1cd+ibcmd+1cedtcli (без конфигуратора и лицензии)</option>
-   <option value="gitsync">gitsync — oscript-library/gitsync + edtExport (нужны конфигуратор, oscript, EDT; проект = отдельный репо в src-layout)</option>
+   <option value="gitsync">gitsync — oscript-library/gitsync + edtExport (нужны oscript, EDT; конфигуратор/лицензия — см. бэкенды)</option>
+  </select></label>
+ <label id="gsb-row">gitsync: чтение хранилища
+  <select name="gitsync_storage_backend" id="gsb">
+   <option value="configurator" selected>configurator — штатно (расширения через -Extension; нужна лицензия)</option>
+   <option value="ctool1cd">ctool1cd — плагин tool1CD (без лицензии на чтение; только Windows, без расширений)</option>
+  </select></label>
+ <label id="gxb-row">gitsync: выгрузка XML
+  <select name="gitsync_xml_backend" id="gxb">
+   <option value="configurator" selected>configurator — DESIGNER DumpConfigToFiles</option>
+   <option value="ibcmd">ibcmd — плагин use-ibcmd (нативный ibcmd)</option>
   </select></label>
  <label>Файл авторов <input name="authors_file" placeholder="/work/authors.txt"></label>
  <label>Домен email <input name="domain" value="storage.local"></label>
@@ -326,8 +367,14 @@ function formData(){
  return data;
 }
 function syncBases(){ $('#ebp').value=$('#cp').value;
- document.querySelectorAll('.ext [name=ext_base]').forEach(i=>{ if(!i.dataset.touched) i.value=$('#cp').value; }); }
+  document.querySelectorAll('.ext [name=ext_base]').forEach(i=>{ if(!i.dataset.touched) i.value=$('#cp').value; }); }
+function syncEngineRows(){
+  const isGit=$('[name=engine]').value==='gitsync';
+  $('#gsb-row').style.display=isGit?'':'none';
+  $('#gxb-row').style.display=isGit?'':'none';
+}
 $('#cp').addEventListener('input',syncBases);
+document.querySelector('[name=engine]').addEventListener('change',syncEngineRows);
 $('#ebp').addEventListener('input',()=>{});
 function addExt(){
  const d=document.createElement('div');d.className='ext';
@@ -412,7 +459,7 @@ async function poll(){
  if(cur.length) $('#cur').textContent=cur[cur.length-1];
  if(j.status!=='running'){ clearInterval(timer); timer=null; $('#cur').textContent='ГОТОВО: '+j.status; state(); }
 }
-syncBases(); state();
+syncBases(); syncEngineRows(); state();
 </script></body></html>"""
 
 

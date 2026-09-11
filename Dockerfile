@@ -64,8 +64,7 @@ ARG PLATFORM_COMPONENTS=server,ru
 COPY docker/scripts/install-platform.sh /usr/local/sbin/onec-image/install-platform.sh
 
 RUN --mount=type=bind,from=distr,source=.,target=/distr,readonly \
-    --mount=type=bind,from=clientdistr,source=.,target=/distr-client,readonly \
-    bash /usr/local/sbin/onec-image/install-platform.sh /distr/platform "${PLATFORM_COMPONENTS}" /distr-client \
+    bash /usr/local/sbin/onec-image/install-platform.sh /distr/platform "${PLATFORM_COMPONENTS}" \
   && test -x /opt/1cv8/current/ibcmd \
   && rm -rf /tmp/* /var/tmp/*
 

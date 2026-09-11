@@ -126,7 +126,7 @@ if ($Engine -in 'all', 'gitsync') {
     $oslib = Join-Path $tools 'oscript\oscript_modules'
     if (Test-Path (Join-Path $oslib 'edtfind')) { Ok "edtfind: $oslib\edtfind (локально, без прав админа)" }    else { Miss 'edtfind не установлен локально' 'cd tools\oscript; opm install -l edtfind  (или просто запустить run-gitsync.ps1 — поставит сам)' }
 
-    if ($platforms) { Ok 'конфигуратор 1С есть — gitsync читает хранилище через DESIGNER (лицензия не нужна)' }
+    if ($platforms) { Ok 'конфигуратор 1С (1cv8) есть: штатный storage_backend=gitsync configurator (для операций с ИБ нужна лицензия)' }
     Ok 'ring НЕ требуется: edtExport 2.x работает через 1cedtcli'
 }
 

@@ -6,13 +6,12 @@
 # Changes: setup-full (server64*) archive support is adopted from the previous
 # crs2edt project; ru-nls deb packages are installed; server-only components.
 #
-# Usage: install-platform.sh <source-dir> [setup-full-components] [client-dir]
+# Usage: install-platform.sh <source-dir> [setup-full-components]
 set -euo pipefail
 shopt -s nullglob
 
-source_dir="${1:?usage: install-platform.sh <source-dir> [components] [client-dir]}"
+source_dir="${1:?usage: install-platform.sh <source-dir> [components]}"
 components="${2:-server,ru}"
-client_dir="${3:-}"
 
 work=/tmp/platform-install
 rm -rf "$work"
@@ -21,10 +20,6 @@ trap 'rm -rf "$work"' EXIT
 
 latest_file() {
   find "$source_dir" -maxdepth 2 -type f -name "$1" | sort -V | tail -1
-}
-
-latest_file_in() {
-  find "$1" -maxdepth 2 -type f -name "$2" | sort -V | tail -1
 }
 
 setup_archive="$(latest_file 'server64*.zip')"
@@ -76,16 +71,11 @@ else
   rm -rf /var/lib/apt/lists/*
 
   # Optional: platform CLIENT (1cv8, configurator) for the gitsync engine —
-  # drop client_*.deb64.zip (releases.1c.ru) into dist/ (build context
-  # `clientdistr`). thin-client debs are not installed (headless image).
-  client_archive=""
-  for candidate_dir in "$client_dir" "$source_dir"; do
-    [ -z "$candidate_dir" ] && continue
-    client_archive="$(latest_file_in "$candidate_dir" 'client_*.deb64.zip')"
-    [ -z "$client_archive" ] && client_archive="$(latest_file_in "$candidate_dir" 'client64_*.zip')"
-    [ -z "$client_archive" ] && client_archive="$(latest_file_in "$candidate_dir" 'client_*.tar.gz')"
-    [ -n "$client_archive" ] && break
-  done
+  # drop client_*.deb64.zip (releases.1c.ru) next to deb64_*.zip.
+  # thin-client debs are not installed (headless image).
+  client_archive="$(latest_file 'client_*.deb64.zip')"
+  [ -z "$client_archive" ] && client_archive="$(latest_file 'client64_*.zip')"
+  [ -z "$client_archive" ] && client_archive="$(latest_file 'client_*.tar.gz')"
   if [ -n "$client_archive" ]; then
     echo "Platform archive (client): $(basename "$client_archive")"
     mkdir -p "$work/client"
@@ -110,7 +100,7 @@ else
   else
     echo "NOTE: no client_*.deb64.zip found — platform client (1cv8) NOT"
     echo "      installed; the gitsync engine in Docker requires it"
-    echo "      (see dist/README.md)."
+    echo "      (see vendor/README.md)."
   fi
 fi
 

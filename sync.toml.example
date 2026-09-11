@@ -8,14 +8,28 @@
 # git-репозиторий, куда складываются все проекты (создаётся при отсутствии)
 path = "/work/output/storage-git"
 # движок выгрузки хранилищ: tool1cd (по умолчанию; ctool1cd+ibcmd+1cedtcli,
-# лицензия/конфигуратор не нужны) или gitsync (официальный путь: конфигуратор
-# читает хранилище, oscript-library/gitsync + плагин edtExport -> 1cedtcli;
-# требуются oscript/gitsync/EDT локально; каждый проект — отдельный
-# git-репозиторий <worktree>/<project> с src-layout)
+# лицензия/конфигуратор не нужны) или gitsync (oscript-library/gitsync +
+# плагин edtExport -> 1cedtcli; требуются oscript/gitsync/EDT; конфигуратор
+# и лицензия - см. [gitsync] ниже)
 # engine = "tool1cd"
 # необязательно: файл мапинга авторов и домен для email (см. README)
 # authors_file = "/work/authors.txt"
 # domain = "company.local"
+
+# Селективные бэкенды движка gitsync (секция ignorируется для tool1cd):
+[gitsync]
+# чтение хранилища:
+#   configurator - штатный конфигуратор (1cv8); поддерживает и хранилища
+#                  РАСШИРЕНИЙ через -Extension; требует лицензию
+#                  (в Docker: ./licenses или license-gui через VNC)
+#   ctool1cd     - плагин tool1CD (читает 1cv8ddb.1CD напрямую, без
+#                  лицензии на чтение); ТОЛЬКО Windows (плагин тащит
+#                  виндовые бинарники), хранилища расширений НЕ умеет
+storage_backend = "configurator"
+# выгрузка конфигурации в XML:
+#   configurator - DESIGNER /DumpConfigToFiles
+#   ibcmd        - плагин use-ibcmd (нативный ibcmd)
+xml_backend = "configurator"
 
 [configuration]
 # хранилище конфигурации: каталог с 1cv8ddb.1CD или путь к самому файлу
@@ -27,11 +41,10 @@ project = "configuration"
 # storage_pwd = ""
 
 [[extension]]
-# ВНИМАНИЕ: хранилища расширений поддерживает только движок tool1cd;
-# gitsync падает с "Соединение основной конфигурации с хранилищем расширений
-# конфигураций невозможно" (проверено на gitsync 3.5.4 Windows и 3.8.0 Docker;
-# плагин tool1CD тоже не поддерживает хранилища расширений).
-# хранилище расширения (может быть много секций [[extension]])
+# хранилище расширения (может быть много секций [[extension]]).
+# Движки: tool1cd - всегда; gitsync - при storage_backend = configurator
+# (штатно через -Extension; плагин increment автоматически отключается -
+# инкрементальный -update-дамп расширений платформой не поддерживается)
 name = "Расширение1"
 storage = "/work/fixtures/crs/ext/Расширение1"
 project = "extension"

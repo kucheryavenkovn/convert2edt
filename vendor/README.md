@@ -8,16 +8,17 @@ BuildKit named context и остаются в installer-стадиях (в фи�
 
 ## vendor/platform/
 
-Платформа 1С:Предприятие 8.3 (нужен только серверный компонент с `ibcmd`).
-Скачать с https://releases.1c.ru/project/Platform83 (нужна учётная запись ИТС).
-Любой из вариантов:
+Платформа 1С:Предприятие 8.3. Скачать с
+https://releases.1c.ru/project/Platform83 (нужна учётная запись ИТС):
 
-| Вариант | Файл | Что внутри |
+| Файл | Что внутри | Зачем |
 |---|---|---|
-| 1 (рекомендуется) | `deb64_8_3_27_XXXX.zip` | deb-пакеты `1c-enterprise*-common/-server(-nls)_*.deb` |
-| 2 | `server64_8_3_27_XXXX.zip` или `server64_with_all_clients_*.zip` | `setup-full-8.3.27.XXXX-x86_64.run` |
+| `deb64_8_3_27_XXXX.zip` (обязательно) | deb `1c-enterprise*-common/-server(-nls)_*.deb` | `ibcmd` — основной конвейер (tool1cd-движок), без лицензии |
+| `client_8_3_27_XXXX.deb64.zip` (опционально) | deb `1c-enterprise*-client(-nls)_*.deb` → `1cv8` (DESIGNER) | движок `gitsync` (configurator-бэкенд) и `license-gui`; нужна лицензия 1С |
 
-Толстый клиент (1cv8 DESIGNER) **не нужен** — конвертация выполняется `ibcmd`.
+Клиент опционален: без него движок gitsync в Docker недоступен (tool1cd-движок работает). thin-client из архива не ставится (headless-образ).
+
+Альтернатива `deb64`: `server64_8_3_27_XXXX.zip` / `server64_with_all_clients_*.zip` (`setup-full-8.3.27.XXXX-x86_64.run`).
 
 ## vendor/edt/
 
@@ -38,7 +39,8 @@ BuildKit named context и остаются в installer-стадиях (в фи�
 ```
 vendor/
 ├── platform/
-│   └── deb64_8_3_27_2342.zip
+│   ├── deb64_8_3_27_2342.zip
+│   └── client_8_3_27_2342.deb64.zip      # опционально (gitsync)
 └── edt/
     └── 1c_edt_distr_offline_2026.1.3_25_linux_x86_64.tar.gz
 ```
