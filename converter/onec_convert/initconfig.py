@@ -312,12 +312,29 @@ PAGE = """<!doctype html>
  .state{background:#fff;border:1px solid #ccd;border-radius:8px;padding:10px;margin:8px 0}
  .pill{display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;padding:2px 10px;margin:2px;font-size:.85rem}
  .cur{font-weight:600;color:#2563eb;white-space:pre-wrap}
- table{border-collapse:collapse;width:100%;font-size:.85rem;background:#fff}
- td,th{border-bottom:1px solid #e2e8f0;padding:4px 6px;text-align:left}
-</style></head><body>
+  table{border-collapse:collapse;width:100%;font-size:.85rem;background:#fff}
+  td,th{border-bottom:1px solid #e2e8f0;padding:4px 6px;text-align:left}
+  .tabs{display:flex;flex-wrap:wrap;gap:4px;margin:16px 0 0}
+  .tabbtn{margin:0;padding:8px 14px;background:#e2e8f0;color:#334;border:0;border-radius:8px 8px 0 0;cursor:pointer;font-size:.9rem}
+  .tabbtn.active{background:#2563eb;color:#fff}
+  .tab{display:none;background:#fff;border:1px solid #ccd;border-radius:0 8px 8px 8px;padding:12px}
+  .tab.active{display:block}
+  .actions{position:sticky;bottom:0;background:#f6f7f9;padding:10px 0;display:flex;gap:8px;flex-wrap:wrap}
+ </style></head><body>
 <h1>1c-convert — конфигурация и запуск синхронизации</h1>
 <p class="hint">Пути — внутри контейнера. Базовый проект расширений/обработок подставляется из имени проекта конфигурации.</p>
+<div class="tabs">
+ <button type="button" class="tabbtn active" data-tab="repo">Монорепозиторий</button>
+ <button type="button" class="tabbtn" data-tab="cfg">Конфигурация</button>
+ <button type="button" class="tabbtn" data-tab="exts">Расширения</button>
+ <button type="button" class="tabbtn" data-tab="ext">Обработки</button>
+ <button type="button" class="tabbtn" data-tab="toml">TOML</button>
+ <button type="button" class="tabbtn" data-tab="state">Состояние</button>
+ <button type="button" class="tabbtn" data-tab="stats">Статистика</button>
+ <button type="button" class="tabbtn" data-tab="log">Лог</button>
+</div>
 <form id="f">
+<div class="tab active" id="tab-repo">
 <fieldset><legend>Монорепозиторий</legend>
  <label>git-worktree <input name="worktree" value="/work/output/storage-git"></label>
  <label>Движок выгрузки хранилищ
@@ -335,35 +352,49 @@ PAGE = """<!doctype html>
    <option value="configurator" selected>configurator — DESIGNER DumpConfigToFiles</option>
    <option value="ibcmd">ibcmd — плагин use-ibcmd (нативный ibcmd)</option>
   </select></label>
- <label>Файл авторов <input name="authors_file" placeholder="/work/authors.txt"></label>
- <label>Домен email <input name="domain" value="storage.local"></label>
-</fieldset>
+  <label>Файл авторов <input name="authors_file" placeholder="/work/authors.txt"></label>
+  <label>Домен email <input name="domain" value="storage.local"></label>
+ </fieldset>
+</div>
+<div class="tab" id="tab-cfg">
 <fieldset><legend>Хранилище конфигурации</legend>
  <label><input type="checkbox" name="config_enabled" id="cfgen" style="width:auto" checked> выгружать хранилище конфигурации</label>
  <label>Путь к хранилищу <input name="config_storage" value="/work/fixtures/crs/cf"></label>
  <label>Имя проекта <input name="config_project" value="configuration" id="cp"></label>
 </fieldset>
+</div>
+<div class="tab" id="tab-exts">
 <fieldset><legend>Расширения</legend><div id="exts"></div>
  <button type="button" class="mini" onclick="addExt()">+ расширение</button>
 </fieldset>
+</div>
+<div class="tab" id="tab-ext">
 <fieldset><legend>Внешние отчёты и обработки</legend>
  <label><input type="checkbox" name="external_enabled" id="exen" style="width:auto" checked> выгружать обработки в EDT-проект</label>
  <label>Каталог XML (выгрузка Конфигуратора) <input name="external_xml_dir" value="/work/fixtures/dp-xml"></label>
  <label>Имя EDT-проекта <input name="external_project" value="external"></label>
  <label>Базовый проект (EDT) <input name="external_base_project" id="ebp"></label>
 </fieldset>
-<button type="button" onclick="send(false)">Предпросмотр TOML</button>
-<button type="button" onclick="send(true)">Сохранить в файл</button>
-<button type="button" onclick="state()">Показать состояние</button>
-<button type="button" class="green" onclick="runSync()">▶ Запустить синхронизацию</button>
+</div>
+<div class="actions">
+ <button type="button" onclick="send(false)">Предпросмотр TOML</button>
+ <button type="button" onclick="send(true)">Сохранить в файл</button>
+ <button type="button" class="green" onclick="runSync()">▶ Запустить синхронизацию</button>
+</div>
 </form>
-<h2>Состояние (что уже выгружено из хранилищ)</h2><div id="state" class="state">— нажмите «Показать состояние» —</div>
-<h2>Статистика прогонов (A/B)</h2><div id="stats" class="state">—</div>
-<h2>Ход синхронизации</h2><div id="cur" class="cur">—</div>
-<pre id="out">— заполните форму и нажмите «Предпросмотр» —</pre>
-<pre id="log" style="display:none"></pre>
+<div class="tab" id="tab-toml"><pre id="out">— заполните форму и нажмите «Предпросмотр TOML» —</pre></div>
+<div class="tab" id="tab-state"><div id="state" class="state">— нажмите «Обновить» —</div>
+ <button type="button" onclick="state()">Обновить</button></div>
+<div class="tab" id="tab-stats"><div id="stats" class="state">— статистика появится после первого прогона —</div></div>
+<div class="tab" id="tab-log"><h2>Ход синхронизации</h2><div id="cur" class="cur">—</div>
+ <pre id="log" style="display:none"></pre></div>
 <script>
 const $=n=>document.querySelector(n);
+function showTab(name){
+ document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.id==='tab-'+name));
+ document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
+}
+document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
 function formData(){
  const f=document.getElementById('f'), fd=new FormData(f), data=Object.fromEntries(fd);
  data.config_enabled=!!fd.has('config_enabled');
@@ -402,13 +433,13 @@ async function send(save){
    body:JSON.stringify({save:!!save,data:formData()})});
  const j=await r.json();
  document.getElementById('out').textContent=j.toml||j.error;
+ showTab('toml');
 }
 async function state(){
  const r=await fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({data:formData()})});
  renderState(await r.json());
-}
-function renderState(s){
+}function renderState(s){
  if(!s.exists){ $('#state').textContent='worktree не существует: '+s.worktree+' (будет создан при синхронизации)'; }
  else{
   let h='<div>Проекты (последняя синхронизированная версия хранилища):</div>';
@@ -454,9 +485,10 @@ async function runSync(){
  const r=await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({data:formData()})});
  const j=await r.json();
- if(j.error){ $('#cur').textContent='ОШИБКА: '+j.error; return; }
+ if(j.error){ showTab('log'); $('#cur').textContent='ОШИБКА: '+j.error; return; }
  logPos=0; $('#log').style.display='block'; $('#log').textContent='';
  $('#cur').textContent='запущено...';
+ showTab('log');
  if(timer) clearInterval(timer);
  timer=setInterval(poll,1200);
 }
@@ -468,7 +500,7 @@ async function poll(){
  $('#log').scrollTop=$('#log').scrollHeight;
  const cur=j.lines?j.lines.filter(l=>l.includes('--- version')||l.includes('syncing')||l.includes('sync done')||l.includes('committed')):[];
  if(cur.length) $('#cur').textContent=cur[cur.length-1];
- if(j.status!=='running'){ clearInterval(timer); timer=null; $('#cur').textContent='ГОТОВО: '+j.status; state(); }
+ if(j.status!=='running'){ clearInterval(timer); timer=null; $('#cur').textContent='ГОТОВО: '+j.status; state(); showTab('stats'); }
 }
 syncBases(); syncEngineRows(); state();
 </script></body></html>"""
