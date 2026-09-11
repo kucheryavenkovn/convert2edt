@@ -380,6 +380,7 @@ PAGE = """<!doctype html>
  <button type="button" onclick="send(false)">Предпросмотр TOML</button>
  <button type="button" onclick="send(true)">Сохранить в файл</button>
  <button type="button" class="green" onclick="runSync()">▶ Запустить синхронизацию</button>
+ <button type="button" style="background:#64748b" onclick="resetDefaults()">⟲ Сбросить на дефолт</button>
 </div>
 </form>
 <div class="tab" id="tab-toml"><pre id="out">— заполните форму и нажмите «Предпросмотр TOML» —</pre></div>
@@ -526,6 +527,19 @@ async function loadToml(){
   bb.value=x.base_project||d.config_project||'configuration';
   bb.dataset.touched=1;
  });
+ syncBases(); syncEngineRows();
+}
+function resetDefaults(){
+ const set=(n,v)=>{ const el=document.querySelector('[name='+n+']'); if(el) el.value=v; };
+ set('worktree','/work/output/storage-git'); set('engine','tool1cd');
+ set('gitsync_storage_backend','configurator'); set('gitsync_xml_backend','configurator');
+ set('authors_file',''); set('domain','storage.local');
+ $('#cfgen').checked=true;
+ set('config_storage','/work/fixtures/crs/cf'); set('config_project','configuration');
+ document.getElementById('exts').innerHTML='';
+ $('#exen').checked=true;
+ set('external_xml_dir','/work/fixtures/dp-xml'); set('external_project','external');
+ set('external_base_project','configuration');
  syncBases(); syncEngineRows();
 }
 syncBases(); syncEngineRows(); state(); loadToml();
