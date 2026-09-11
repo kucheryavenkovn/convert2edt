@@ -97,17 +97,28 @@ src-layout, issue gitsync-plugins#53):
 ### Клиент-серверные ИБ и сервер хранилища
 
 - **Сервер хранилища**: в `[configuration] storage` / `[[extension]] storage`
-  указывается строка `tcp://host:port/<имя_репозитория>` — gitsync/1cv8
+  указывается строка `tcp://host:port/<имя_репозитория>` (порт можно
+  опустить, если сервер на стандартном 1542: `tcp://localhost/cf`) — gitsync/1cv8
   подключаются к сервису crs по TCP (локальная копия хранилища не делается,
-  в отличие от файловых хранилищ). Свой crs можно поднять из этого же
-  репозитория: сервис `crs` в compose (тонкий образ платформа+crserver,
-  репозитории в `./storage-crs`, порт `CRS_PORT`, по умолчанию 1542):
+  в отличие от файловых хранилищ). Варианты сервера:
+  - **Windows нативно** — служба «Сервер хранилища конфигураций» (crserver);
+    для запуска без службы есть helper `scripts\local\run-crs.ps1`
+    (`-Port`, `-DataDir`, каталог по умолчанию `storage-crs`, gitignored);
+  - **Docker** — сервис `crs` этого репозитория (тонкий образ
+    платформа+crserver, репозитории в `./storage-crs`, `CRS_PORT`=1542):
 
   ```bash
   docker compose up -d crs
-  # создать репозиторий из конфигурации ИБ (batch-команда конфигуратора):
-  #   /ConfigurationRepositoryF tcp://<host>:1542/<имя> /ConfigurationRepositoryN <админ> \
-  #   /ConfigurationRepositoryCreate -user <админ>
+  # из контейнера converter адрес хоста — host.docker.internal:
+  #   storage = "tcp://host.docker.internal/cf"
+  ```
+
+  Создание репозитория на сервере из конфигурации ИБ (batch-команда
+  конфигуратора):
+
+  ```bash
+  #   /ConfigurationRepositoryF tcp://<host>:1542/<имя> \
+  #   /ConfigurationRepositoryN <админ> /ConfigurationRepositoryCreate -user <админ>
   ```
 
 - **Клиент-серверная ИБ** (источник для выгрузки в XML): `ib_connection =

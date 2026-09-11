@@ -452,6 +452,7 @@ docker compose build converter
 scripts\local\check-deps.ps1     # проверка с подсказками, что поставить
 scripts\local\sync.cmd           # sync-all по scripts\local\sync.local.toml
 scripts\local\run-gitsync.cmd    # gitsync-движок одной командой (без конфига)
+scripts\local\run-crs.cmd        # сервер хранилища (crserver) локально
 ```
 
 Результаты замеров всех вариантов (движки × бэкенды × окружения) — в

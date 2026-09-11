@@ -83,7 +83,7 @@ def sync_all(cfg: Config, config_path: Path) -> None:
     ib_connection = gitsync_conf.get("ib_connection") or ""
     ib_user = gitsync_conf.get("ib_user") or ""
     ib_pwd = gitsync_conf.get("ib_pwd") or ""
-    ibcmd_db = {k: gitsync_conf.get(f"ibcmd_{k}") or "" for k in
+    ibcmd_db = {f"ibcmd_{k}": gitsync_conf.get(f"ibcmd_{k}") or "" for k in
                 ("dbms", "db_server", "db_name", "db_user", "db_pwd")}
     if engine == "gitsync":
         from .gitsync import STORAGE_BACKENDS, XML_BACKENDS
