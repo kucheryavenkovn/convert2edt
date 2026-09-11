@@ -250,8 +250,11 @@ Designer-dump), далее всё автоматизировано.
 
 ## Конфиг синхронизации (sync.toml)
 
-Единый конфиг путей для `sync-all` (копия `sync.toml.example`):
-`[worktree]` — git-репозиторий монорепо (+ `engine`); `[gitsync]` —
+Единый конфиг путей для `sync-all` (копия `sync.toml.example`).
+**Полный справочник всех секций, ключей, дефолтов, матрицы бэкендов и
+примеров — [docs/sync-config.md](docs/sync-config.md).**
+
+Кратко: `[worktree]` — git-репозиторий монорепо (+ `engine`); `[gitsync]` —
 селективные бэкенды gitsync-движка; `[configuration]` — хранилище
 конфигурации (`project` = имя каталога в worktree **и** имя EDT-проекта —
 можно любое); `[[extension]]` — хранилища расширений (сколько нужно), у
@@ -303,7 +306,10 @@ gitsync читает хранилище классическим путём че
 
 1. **Программная лицензия через VNC** (одноразово, по подходу kafka-tools
    `client`): поднимается Xvfb + openbox + x11vnc, лицензия сохраняется в
-   volume `v8home` (`/root/.1cv8`) и переживает `--rm`:
+   volume `v8home` (`/root/.1cv8`) и переживает `--rm`. **Пошаговая
+   инструкция — [docs/license-gui.md](docs/license-gui.md)**
+   (подключение VNC-клиента, диалог 1С, привязка к MAC, типовые проблемы).
+   Коротко:
 
    ```bash
    docker compose run --rm -p 127.0.0.1:5900:5900 converter license-gui
@@ -527,6 +533,7 @@ docker compose run --rm converter sync-all
 # клиент платформы должен быть в vendor/platform/ (пересобрать образ, если добавили)
 docker compose run --rm -p 127.0.0.1:15900:5900 converter license-gui
 # → VNC-клиент на 127.0.0.1:15900 → «Получить программную лицензию»
+# пошагово (подключение, MAC, проблемы): docs/license-gui.md
 # лицензия живёт в volume v8home + ./licenses, MAC зафиксирован
 
 # затем в sync.toml: engine = "gitsync" (+ секция [gitsync] при необходимости)
@@ -569,6 +576,8 @@ tests/smoke/                # smoke test CF → XML → EDT → XML → CF
 legacy/designer-host-bridge/# старая архитектура (DESIGNER + Windows Host Bridge) — deprecated
 docs/comparison.md          # сравнение возможностей с 1CFilesConverter
 docs/benchmarks.md          # результаты замеров: движки × бэкенды × окружения
+docs/sync-config.md         # полный справочник sync.toml (секции/ключи/примеры)
+docs/license-gui.md         # получение лицензии 1С в Docker через VNC (пошагово)
 THIRD_PARTY_NOTICES.md      # лицензионные уведомления upstream
 ```
 
