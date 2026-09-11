@@ -325,6 +325,20 @@ gitsync читает хранилище классическим путём че
 2. **Файлы `*.lic`** — положить в `./licenses` (монтируется как
    `/var/1C/licenses`).
 
+**Сервер хранилища (crs) и клиент-серверные ИБ.** Движок gitsync умеет
+работать с хранилищем, опубликованным на сервере (строка подключения
+`tcp://host:port/<имя>` в `storage`), и с клиент-серверными ИБ
+(`[gitsync] ib_connection = "/S<server>\\<ref>"`). Свой сервер хранилища
+поднимается сервисом `crs` (тонкий образ платформа+crserver, репозитории
+в `./storage-crs`, порт `CRS_PORT`=1542):
+
+```bash
+docker compose up -d crs          # tcp://127.0.0.1:1542/<имя>
+```
+
+Образ конвертера crs НЕ содержит — он только подключается по TCP.
+Подробности — [docs/sync-config.md](docs/sync-config.md).
+
 Механика `base_project`: обе import-команды (базовый проект + расширение
 с `--base-project-name`) выполняются одним EDT-скриптом в одной сессии —
 отдельными вызовами EDT 2026.1 базу «не видит» («Не найдено открытого
@@ -561,8 +575,8 @@ docker compose run --rm converter 1c-convert info
 ```
 Dockerfile                  # один образ: платформа (ibcmd + 1cv8) + EDT + ctool1cd
                              # + OneScript/gitsync + GUI/VNC-стек для license-gui
-compose.yaml                # сервис converter (input/output/cache монтируются с host;
-                             # volume v8home — программная лицензия, MAC зафиксирован)
+compose.yaml                # сервисы: converter (input/output/cache, volume v8home —
+                             # лицензия, MAC зафиксирован) и crs (сервер хранилища)
 docker/scripts/             # install-platform.sh, install-edt.sh (kafka-tools, Apache-2.0),
                              # install-gitsync.sh (oscript+gitsync+плагины), license-gui.sh (VNC)
 converter/onec_convert/     # тонкий оркестратор (Python): pipeline (tool1cd-движок),

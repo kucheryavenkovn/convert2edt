@@ -74,14 +74,23 @@ def render_toml(data: dict) -> str:
 
     gitsync_section = ""
     if engine == "gitsync":
+        ib_lines = ""
+        if data.get("ib_connection"):
+            ib_lines += f'ib_connection = "{data["ib_connection"]}"\n'
+        if data.get("ib_user"):
+            ib_lines += f'ib_user = "{data["ib_user"]}"\n'
+        if data.get("ib_pwd"):
+            ib_lines += f'ib_pwd = "{data["ib_pwd"]}"\n'
         gitsync_section = (
             "\n[gitsync]\n"
             "# чтение хранилища: configurator (штатно, расширения через -Extension;\n"
-            "# нужна лицензия) | ctool1cd (плагин tool1CD, без лицензии на чтение;\n"
-            "# только Windows, без расширений)\n"
+            "# удалённые хранилища tcp://; нужна лицензия) | ctool1cd (плагин\n"
+            "# tool1CD, без лицензии на чтение; только Windows, без расширений/tcp)\n"
             f'storage_backend = "{storage_backend}"\n'
             "# выгрузка в XML: configurator (DESIGNER) | ibcmd (плагин use-ibcmd)\n"
             f'xml_backend = "{xml_backend}"\n'
+            "# ИБ для выгрузки (клиент-серверная): /S<server>\\<ref>; пусто = временная файловая\n"
+            + ib_lines
         )
 
     extension_sections = ""
@@ -159,6 +168,13 @@ def wizard() -> dict:
         data["gitsync_xml_backend"] = _ask(
             "выгрузка XML (configurator|ibcmd)", "configurator"
         )
+        data["ib_connection"] = _ask(
+            "ИБ для выгрузки: /S<server>\\<ref> (пусто = временная файловая)", ""
+        )
+        if data["ib_connection"]:
+            data["ib_user"] = _ask("пользователь ИБ (пусто = нет)", "")
+            if data["ib_user"]:
+                data["ib_pwd"] = _ask("пароль ИБ (пусто = нет)", "")
 
     index = 1
     while True:
@@ -352,6 +368,10 @@ PAGE = """<!doctype html>
    <option value="configurator" selected>configurator — DESIGNER DumpConfigToFiles</option>
    <option value="ibcmd">ibcmd — плагин use-ibcmd (нативный ibcmd)</option>
   </select></label>
+ <label id="ibc-row">gitsync: ИБ для выгрузки (пусто = временная файловая)
+  <input name="ib_connection" placeholder="/S server\ref или /F путь"></label>
+ <label id="ibu-row">gitsync: пользователь ИБ <input name="ib_user"></label>
+ <label id="ibp-row">gitsync: пароль ИБ <input name="ib_pwd" type="password"></label>
   <label>Файл авторов <input name="authors_file" placeholder="/work/authors.txt"></label>
   <label>Домен email <input name="domain" value="storage.local"></label>
  </fieldset>
@@ -359,7 +379,7 @@ PAGE = """<!doctype html>
 <div class="tab" id="tab-cfg">
 <fieldset><legend>Хранилище конфигурации</legend>
  <label><input type="checkbox" name="config_enabled" id="cfgen" style="width:auto" checked> выгружать хранилище конфигурации</label>
- <label>Путь к хранилищу <input name="config_storage" value="/work/fixtures/crs/cf"></label>
+ <label>Путь к хранилищу <input name="config_storage" value="/work/fixtures/crs/cf" placeholder="/путь/или tcp://host:1542/имя"></label>
  <label>Имя проекта <input name="config_project" value="configuration" id="cp"></label>
 </fieldset>
 </div>
@@ -412,8 +432,7 @@ function syncBases(){ $('#ebp').value=$('#cp').value;
   document.querySelectorAll('.ext [name=ext_base]').forEach(i=>{ if(!i.dataset.touched) i.value=$('#cp').value; }); }
 function syncEngineRows(){
   const isGit=$('[name=engine]').value==='gitsync';
-  $('#gsb-row').style.display=isGit?'':'none';
-  $('#gxb-row').style.display=isGit?'':'none';
+  ['#gsb-row','#gxb-row','#ibc-row','#ibu-row','#ibp-row'].forEach(s=>{ $(s).style.display=isGit?'':'none'; });
 }
 $('#cp').addEventListener('input',syncBases);
 document.querySelector('[name=engine]').addEventListener('change',syncEngineRows);
@@ -422,7 +441,7 @@ $('#ebp').addEventListener('input',()=>{});
   const d=document.createElement('div');d.className='ext';
   d.innerHTML='<label><input type="checkbox" name="ext_enabled" style="width:auto" checked> выгружать это расширение</label>'
    +'<label>Имя <input name="ext_name"></label>'
-   +'<label>Хранилище <input name="ext_storage"></label>'
+   +'<label>Хранилище <input name="ext_storage" placeholder="/путь или tcp://host:1542/имя"></label>'
    +'<label>Проект <input name="ext_project"></label>'
    +'<label>Базовый проект (EDT) <input name="ext_base"></label>';
  document.getElementById('exts').appendChild(d);
@@ -510,6 +529,7 @@ async function loadToml(){
  const set=(n,v)=>{ const el=document.querySelector('[name='+n+']'); if(el&&v!==undefined&&v!==null) el.value=v; };
  set('worktree',d.worktree); set('engine',d.engine); set('authors_file',d.authors_file); set('domain',d.domain);
  set('gitsync_storage_backend',d.gitsync_storage_backend); set('gitsync_xml_backend',d.gitsync_xml_backend);
+ set('ib_connection',d.ib_connection||''); set('ib_user',d.ib_user||''); set('ib_pwd',d.ib_pwd||'');
  $('#cfgen').checked=d.config_enabled!==false;
  set('config_storage',d.config_storage); set('config_project',d.config_project);
  $('#exen').checked=!!d.external_enabled;
@@ -533,6 +553,7 @@ function resetDefaults(){
  const set=(n,v)=>{ const el=document.querySelector('[name='+n+']'); if(el) el.value=v; };
  set('worktree','/work/output/storage-git'); set('engine','tool1cd');
  set('gitsync_storage_backend','configurator'); set('gitsync_xml_backend','configurator');
+ set('ib_connection',''); set('ib_user',''); set('ib_pwd','');
  set('authors_file',''); set('domain','storage.local');
  $('#cfgen').checked=true;
  set('config_storage','/work/fixtures/crs/cf'); set('config_project','configuration');
@@ -591,6 +612,9 @@ class Handler(BaseHTTPRequestHandler):
             "domain": wt.get("domain") or "storage.local",
             "gitsync_storage_backend": gs.get("storage_backend") or "configurator",
             "gitsync_xml_backend": gs.get("xml_backend") or "configurator",
+            "ib_connection": gs.get("ib_connection") or "",
+            "ib_user": gs.get("ib_user") or "",
+            "ib_pwd": gs.get("ib_pwd") or "",
             "config_enabled": conf.get("enabled", True),
             "config_storage": conf.get("storage") or "/work/fixtures/crs/cf",
             "config_project": conf.get("project") or "configuration",

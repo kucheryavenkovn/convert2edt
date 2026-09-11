@@ -69,6 +69,14 @@ def _echo(line: str) -> None:
         out.flush()
 
 
+# строки подключения к серверу хранилища (crs) и http-публикациям
+REMOTE_STORAGE_PREFIXES = ("tcp://", "http://", "https://", "tcp:", "http:")
+
+
+def is_remote_storage(storage: str) -> bool:
+    return (storage or "").strip().lower().startswith(REMOTE_STORAGE_PREFIXES)
+
+
 def _repo_tools_oslib() -> Path | None:
     # converter/onec_convert/gitsync.py -> <repo>/tools/oscript/oscript_modules
     repo_root = Path(__file__).resolve().parents[2]
@@ -200,14 +208,28 @@ class GitSync:
         workspace: Path | None = None,
         storage_backend: str = "configurator",
         xml_backend: str = "configurator",
+        ib_connection: str = "",
+        ib_user: str = "",
+        ib_pwd: str = "",
+        ibcmd_dbms: str = "",
+        ibcmd_db_server: str = "",
+        ibcmd_db_name: str = "",
+        ibcmd_db_user: str = "",
+        ibcmd_db_pwd: str = "",
     ) -> None:
         """Синхронизировать хранилище в git-репозиторий workdir (src-layout).
 
         storage_backend: configurator (штатный, поддерживает и хранилища
-        расширений через -Extension) | ctool1cd (плагин tool1CD; только
-        Windows, без лицензии на чтение хранилища; расширения НЕ умеет).
+        расширений через -Extension; также УДАЛЁННЫЕ хранилища tcp://) |
+        ctool1cd (плагин tool1CD; только Windows, без лицензии на чтение
+        хранилища; расширения и tcp:// НЕ умеет).
         xml_backend: configurator (DESIGNER DumpConfigToFiles) | ibcmd
         (плагин use-ibcmd, нативный ibcmd).
+        storage: файловый каталог/файл 1cv8ddb.1CD ЛИБО строка подключения
+        к серверу хранилища (crs): tcp://host:port/имя_репозитория.
+        ib_connection: ИБ для выгрузки (/S<server>\\<ref> или /F<путь>);
+        пусто = временная файловая ИБ (как раньше).
+        ibcmd_*: параметры СУБД для плагина use-ibcmd при серверной ИБ.
         """
         if storage_backend not in STORAGE_BACKENDS:
             raise GitSyncError(
@@ -219,7 +241,16 @@ class GitSync:
                 f"xml_backend должен быть {' или '.join(XML_BACKENDS)}, "
                 f"получено: {xml_backend!r}"
             )
+        remote_storage = is_remote_storage(storage)
+        if remote_storage:
+            info(f"gitsync: удалённое хранилище (сервер хранилища): {storage}")
         if storage_backend == "ctool1cd":
+            if remote_storage:
+                raise GitSyncError(
+                    "плагин tool1CD работает только с файлом 1cv8ddb.1CD; "
+                    "для удалённых хранилищ (tcp://) используйте "
+                    "storage_backend = configurator"
+                )
             if extension:
                 raise GitSyncError(
                     "плагин tool1CD не поддерживает хранилища расширений; "
@@ -235,8 +266,12 @@ class GitSync:
 
         run = new_stats_run("gitsync", project_name, storage)
         run_start = monotonic()
-        storage_path = self._prepare_storage(storage, project_name)
-        info(f"gitsync: работаю с копией хранилища: {storage_path}")
+        if remote_storage:
+            # сервер хранилища (crs): строка подключения передаётся как есть
+            storage_path = storage.strip()
+        else:
+            storage_path = self._prepare_storage(storage, project_name)
+            info(f"gitsync: работаю с копией хранилища: {storage_path}")
         info(
             f"gitsync: бэкенды — чтение хранилища: {storage_backend}, "
             f"выгрузка XML: {xml_backend}"
@@ -251,8 +286,27 @@ class GitSync:
             ibcmd_data = temp_dir / "ibcmd-data"
             ibcmd_data.mkdir(parents=True, exist_ok=True)
             env["GITSYNC_IBCMD_DATA"] = str(ibcmd_data)
+            # параметры СУБД для клиент-серверной ИБ
+            if ibcmd_dbms:
+                env["GITSYNC_IBCMD_DBMS"] = ibcmd_dbms
+            if ibcmd_db_server:
+                env["GITSYNC_IBCMD_DB_SERVER"] = ibcmd_db_server
+            if ibcmd_db_name:
+                env["GITSYNC_IBCMD_DB_NAME"] = ibcmd_db_name
+            if ibcmd_db_user:
+                env["GITSYNC_IBCMD_DB_USER"] = ibcmd_db_user
+            if ibcmd_db_pwd:
+                env["GITSYNC_IBCMD_DB_PWD"] = ibcmd_db_pwd
         v8 = self.cfg.effective_v8_version() or "8.3"
         global_opts = ["--v8version", v8, "--tempdir", str(temp_dir), "--domain-email", domain]
+        if ib_connection:
+            # клиент-серверная (или иная внешняя) ИБ вместо временной файловой
+            info(f"gitsync: ИБ для выгрузки: {ib_connection}")
+            global_opts += ["-C", ib_connection]
+            if ib_user:
+                global_opts += ["-U", ib_user]
+            if ib_pwd:
+                global_opts += ["-P", ib_pwd]
 
         # детерминированное состояние плагинов на прогон:
         #  * tool1CD/use-ibcmd — по выбранным бэкендам;

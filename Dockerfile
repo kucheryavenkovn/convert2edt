@@ -118,6 +118,21 @@ RUN apt-get update \
   && rm -rf /tmp/tool1cd-* /var/lib/apt/lists/*
 
 
+# ------------------------------------------------------- crs (repository server)
+# Thin target: platform server + configuration repository server (crs deb).
+# The converter image does NOT include crs — it only connects over tcp://.
+FROM runtime-base AS crs
+COPY docker/scripts/install-platform.sh /usr/local/sbin/onec-image/install-platform.sh
+
+RUN --mount=type=bind,from=distr,source=.,target=/distr,readonly \
+    CRS_INSTALL=1 bash /usr/local/sbin/onec-image/install-platform.sh /distr/platform "server,ru" \
+  && test -x /opt/1cv8/current/ibcmd \
+  && rm -rf /tmp/* /var/tmp/* /usr/share/doc/* /usr/share/man/*
+
+# repository databases live here (compose mounts a volume)
+VOLUME /repos
+
+
 # ------------------------------------------------------------------------ final
 FROM runtime-base AS converter
 ARG PLATFORM_VERSION=unknown
@@ -129,6 +144,10 @@ ARG REVISION=r1
 # (XML -> EDT via 1cedtcli) plugins. Public sources only.
 ARG GITSYNC_SUPPORT=1
 ARG OSCRIPT_VERSION=1.9.4
+# программная лицензия 1С привязывается к MAC + /etc/machine-id; без фиксации
+# каждая пересборка образа генерирует новый machine-id и инвалидрует лицензию.
+# Значение по умолчанию = machine-id образа, на котором лицензия активирована.
+ARG MACHINE_ID=72a3ee44d3a44a51925e4faeeb85cc9e
 
 LABEL org.opencontainers.image.title="1c-converter" \
       org.opencontainers.image.description="1C configuration converter: ibcmd + 1cedtcli + ctool1cd (storage) + thin orchestration (based on approaches from arkuznetsov/1CFilesConverter and ShadobaAI/kafka-tools)" \
@@ -182,6 +201,8 @@ RUN sed -i 's/^Components: main$/Components: main contrib/' /etc/apt/sources.lis
   # платформа бандлит старый libstdc++, который несовместим с bookworm-webkit
   # (1cv8 client грузит libwebkit2gtk) — убираем, системный новее и совместим
   && find /opt/1cv8 -maxdepth 3 -name 'libstdc++.so.6*' -delete \
+  && printf '%s\n' "${MACHINE_ID}" > /etc/machine-id \
+  && mkdir -p /var/lib/dbus && cp /etc/machine-id /var/lib/dbus/machine-id \
   && rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/lintian /usr/share/linda /tmp/* /var/tmp/*
 
 COPY docker/scripts/install-gitsync.sh /usr/local/sbin/onec-image/install-gitsync.sh

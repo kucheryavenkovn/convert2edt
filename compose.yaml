@@ -2,6 +2,24 @@ name: convert2edt
 
 services:
 
+  # Сервер хранилища конфигураций (crs) — отдельный тонкий образ
+  # (платформа server+crs, без EDT/конвертера). Репозитории хранятся
+  # в ./storage-crs на хосте. Использование: tcp://127.0.0.1:1542/<имя>
+  crs:
+    image: ${CRS_IMAGE:-convert2edt/crs:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: crs
+      additional_contexts:
+        distr: ${VENDOR_DIR:-./vendor}
+    init: true
+    command: ["/opt/1cv8/current/crserver", "-d", "/repos", "-port", "${CRS_PORT:-1542}"]
+    ports:
+      - "127.0.0.1:${CRS_PORT:-1542}:${CRS_PORT:-1542}"
+    volumes:
+      - ./storage-crs:/repos
+
   converter:
     image: ${CONVERTER_IMAGE:-convert2edt/converter:latest}
     build:

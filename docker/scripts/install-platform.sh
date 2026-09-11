@@ -60,6 +60,18 @@ else
     1c-enterprise*-server_*.deb
     1c-enterprise*-server-nls_*.deb
   )
+  # optional: configuration repository server (crs) — target `crs` of the image
+  # (converter image does NOT include it; the tool only CONNECTS over tcp://)
+  if [ "${CRS_INSTALL:-0}" = "1" ]; then
+    # crs depends on the ws (web-server extension) package
+    crs_debs=(1c-enterprise*-crs_*.deb 1c-enterprise*-ws_*.deb 1c-enterprise*-ws-nls_*.deb)
+    if [ "${#crs_debs[@]}" -lt 3 ]; then
+      echo "ERROR: CRS_INSTALL=1 but crs/ws debs not found in the archive." >&2
+      ls -1 1c-enterprise*.deb >&2 || true
+      exit 1
+    fi
+    debs+=("${crs_debs[@]}")
+  fi
   if [ "${#debs[@]}" -lt 4 ]; then
     echo "ERROR: expected 4 deb packages (common/server + nls), found ${#debs[@]}:" >&2
     ls -1 1c-enterprise*.deb >&2 || true

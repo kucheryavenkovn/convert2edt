@@ -71,21 +71,50 @@ src-layout, issue gitsync-plugins#53):
 
 ## [gitsync] — бэкенды движка gitsync
 
-Секция игнорируется при `engine = "tool1cd"`. Оба ключа опциональны.
+Секция игнорируется при `engine = "tool1cd"`. Все ключи опциональны.
 
 | Ключ | Значения | По умолчанию |
 |---|---|---|
 | `storage_backend` | `configurator` \| `ctool1cd` | `configurator` |
 | `xml_backend` | `configurator` \| `ibcmd` | `configurator` |
+| `ib_connection` | `/S<server>\<ref>` (клиент-серверная ИБ) или `/F<путь>` | пусто = временная файловая ИБ |
+| `ib_user` / `ib_pwd` | пользователь/пароль ИБ для `ib_connection` | пусто |
+| `ibcmd_dbms` | СУБД для use-ibcmd: `MSSQLServer`\|`PostgreSQL`\|`IBMDB2`\|`OracleDatabase` | пусто (плагин) |
+| `ibcmd_db_server` / `ibcmd_db_name` | сервер/имя БД | пусто |
+| `ibcmd_db_user` / `ibcmd_db_pwd` | пользователь/пароль СУБД | пусто |
 
 ### `storage_backend` — чтение хранилища (версии, авторы, дамп)
 
 | | `configurator` | `ctool1cd` |
 |---|---|---|
 | Как | конфигуратор 1С (1cv8) подключается к хранилищу | плагин tool1CD читает `1cv8ddb.1CD` напрямую |
+| Файловое хранилище | да | да |
+| **Сервер хранилища (crs), `tcp://host:port/rep`** | **да** | нет (плагин работает только с файлом БД хранилища) |
 | Хранилища расширений | да, штатно через `-Extension` (передаётся в `init -e` и `sync -e`) | **нет** (валидация запрещает) |
 | Лицензия 1С | нужна (операции с ИБ) | не нужна на чтение |
 | Где работает | Windows, Docker (клиент платформы в образе) | **только Windows**: плагин исполняет виндовые бинарники; в Linux нужен wine — не используем |
+
+### Клиент-серверные ИБ и сервер хранилища
+
+- **Сервер хранилища**: в `[configuration] storage` / `[[extension]] storage`
+  указывается строка `tcp://host:port/<имя_репозитория>` — gitsync/1cv8
+  подключаются к сервису crs по TCP (локальная копия хранилища не делается,
+  в отличие от файловых хранилищ). Свой crs можно поднять из этого же
+  репозитория: сервис `crs` в compose (тонкий образ платформа+crserver,
+  репозитории в `./storage-crs`, порт `CRS_PORT`, по умолчанию 1542):
+
+  ```bash
+  docker compose up -d crs
+  # создать репозиторий из конфигурации ИБ (batch-команда конфигуратора):
+  #   /ConfigurationRepositoryF tcp://<host>:1542/<имя> /ConfigurationRepositoryN <админ> \
+  #   /ConfigurationRepositoryCreate -user <админ>
+  ```
+
+- **Клиент-серверная ИБ** (источник для выгрузки в XML): `ib_connection =
+  "/S<server>\<ref>"` + при необходимости `ib_user`/`ib_pwd` — тогда вместо
+  временной файловой ИБ конфигуратор работает с указанной ИБ. Для
+  `xml_backend = "ibcmd"` дополнительно передаются параметры СУБД
+  (`ibcmd_dbms` и т.д.).
 
 ### `xml_backend` — выгрузка конфигурации в XML
 
@@ -231,6 +260,25 @@ xml_backend = "ibcmd"
 storage = "/work/fixtures/crs/cf"
 ```
 
+### 4а. Сервер хранилища (crs) + клиент-серверная ИБ
+
+```toml
+[worktree]
+path = "/work/output/storage-git"
+engine = "gitsync"
+
+[gitsync]
+storage_backend = "configurator"
+xml_backend = "configurator"
+ib_connection = "/Sdb-server\\billing"   # клиент-серверная ИБ для выгрузки
+ib_user = "Администратор"
+ib_pwd = "..."
+
+[configuration]
+storage = "tcp://crs:1542/billing-rep"   # сервер хранилища
+project = "configuration"
+```
+
 ### 5. Локально на Windows (без Docker)
 
 ```toml
@@ -253,7 +301,8 @@ base_project = "configuration"
 
 - `[worktree] path` обязателен; `engine` ∈ {tool1cd, gitsync}
 - `[gitsync] storage_backend` ∈ {configurator, ctool1cd}; `xml_backend` ∈ {configurator, ibcmd}
-- `storage_backend = "ctool1cd"`: запрещён для секций расширений; в Linux/Docker — ошибка «только Windows»
+- `storage_backend = "ctool1cd"`: запрещён для секций расширений и для удалённых хранилищ (`tcp://`); в Linux/Docker — ошибка «только Windows»
+- удалённое хранилище (`tcp://`) требует `storage_backend = "configurator"`
 - у каждой секции обязателен `storage`; у `[[extension]]` — ещё и `name`
 - `base_project` должен существовать в worktree к моменту шага расширения
   (синкни конфигурацию раньше — `sync-all` выполняет секции по порядку)

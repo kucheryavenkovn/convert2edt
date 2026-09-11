@@ -80,6 +80,11 @@ def sync_all(cfg: Config, config_path: Path) -> None:
     gitsync_conf = data.get("gitsync") or {}
     storage_backend = (gitsync_conf.get("storage_backend") or "configurator").strip().lower()
     xml_backend = (gitsync_conf.get("xml_backend") or "configurator").strip().lower()
+    ib_connection = gitsync_conf.get("ib_connection") or ""
+    ib_user = gitsync_conf.get("ib_user") or ""
+    ib_pwd = gitsync_conf.get("ib_pwd") or ""
+    ibcmd_db = {k: gitsync_conf.get(f"ibcmd_{k}") or "" for k in
+                ("dbms", "db_server", "db_name", "db_user", "db_pwd")}
     if engine == "gitsync":
         from .gitsync import STORAGE_BACKENDS, XML_BACKENDS
 
@@ -126,6 +131,10 @@ def sync_all(cfg: Config, config_path: Path) -> None:
                 domain=domain,
                 storage_backend=storage_backend,
                 xml_backend=xml_backend,
+                ib_connection=ib_connection,
+                ib_user=ib_user,
+                ib_pwd=ib_pwd,
+                **ibcmd_db,
             )
         else:
             pipeline.storage_sync(
