@@ -17,6 +17,26 @@
 | 5 | Docker (образ) | gitsync 3.8.0 | configurator/configurator | хранилище конфигурации | 5 | **161.59** | **32.3** |
 | 6 | Docker (образ) | gitsync 3.8.0 | configurator/ibcmd | хранилище конфигурации | 5 | 270.74 | 54.1 |
 | 7 | Docker (образ) | gitsync 3.8.0 | configurator/configurator | хранилище расширения | 2 | 96.20 | 48.1 |
+| 8 | Windows, локально | gitsync 3.5.4 | configurator/configurator | **сервер хранилища `tcp://localhost/cf`** | 5 | 255.47 | 51.1 |
+| 9 | Windows, локально | gitsync 3.5.4 | configurator/configurator | сервер хранилища, расширение | 2 | 87.21 | 43.6 |
+| 10 | Docker (образ) | gitsync 3.8.0 | configurator/configurator | **сервер хранилища `tcp://host.docker.internal/cf`** | 5 | 167.57 | 33.5 |
+| 11 | Docker (образ) | gitsync 3.8.0 | configurator/configurator | сервер хранилища, расширение | 2 | 112.36 | 56.2 |
+
+## Сервер хранилища (crs) и клиент-серверные ИБ
+
+Проверено на живом сервере хранилища (Windows-служба crserver, репозитории
+`cf` и `ext/Расширение1`):
+
+- **нативно на Windows** — `storage = "tcp://localhost/cf"` (порт по
+  умолчанию 1542; лицензия рабочей станции), 5+2 коммита;
+- **из Docker** — `storage = "tcp://host.docker.internal/cf"` (хост-сервер
+  виден через Docker Desktop), 5+2 коммита; контейнеру нужна лицензия
+  (нативно на Windows — нет).
+
+Клиент-серверная ИБ для выгрузки задаётся в `[gitsync]`
+(`ib_connection = "/S<server>\\<ref>"` или `Srvr="...";Ref="...";` +
+`ib_user`/`ib_pwd`); для `xml_backend = "ibcmd"` — параметры СУБД
+(`ibcmd_dbms` и т.д.). Подробности — [sync-config.md](sync-config.md).
 
 ## По-версионная детализация
 
