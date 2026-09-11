@@ -130,6 +130,20 @@ EDT workspace создаётся заново на каждый запуск —
 формата `ИмяИзХранилища=Git Имя <email>`; без мапинга —
 `Имя <slug@--domain>`.
 
+### Статистика прогонов (A/B движков)
+
+Каждый прогон синхронизации пишется в `<worktree>/.storage-sync-stats.json`
+(в git не коммитится): движок, проект, длительность и по-версионные тайминги.
+Для `tool1cd` — по фазам: хранилище→cf (`dump_sec`), cf→XML (`xml_sec`),
+XML→EDT (`edt_sec`), commit. Для `gitsync` внутренние фазы извне недоступны —
+замеряется версия целиком (по маркерам лога) и прогон вместе с `init`.
+Тот же отчёт показывает веб-помощник (`config-server`), секция
+«Статистика прогонов»: таблица прогонов (движок/проект/версий/секунд/
+среднее на версию) + детализация последнего прогона по версиям.
+
+Замер на fixtures (5 версий конфигурации, Windows, EDT 2026.2):
+`tool1cd` ≈ 81 с/версию (из них XML→EDT ≈ 76 с), `gitsync` ≈ 43 с/версию.
+
 ### Хранилище расширений в тот же monorepo
 
 Отдельное хранилище расширения синкается **в тот же worktree** отдельным
@@ -222,6 +236,26 @@ Designer-dump), далее всё автоматизировано.
 `base_project`). Пути указываются внутри контейнера (см. монтирования в
 `compose.yaml`; fixtures смонтированы в `/work/fixtures`).
 
+### Движок выгрузки хранилищ (`[worktree] engine`)
+
+| engine | Чтение версий хранилища | XML→EDT | Требования |
+|---|---|---|---|
+| `tool1cd` (по умолчанию) | `ctool1cd` напрямую из `1cv8ddb.1CD` | `ibcmd` + `1cedtcli` (наш конвейер) | без конфигуратора и лицензии |
+| `gitsync` | конфигуратор 1С (DESIGNER) через oscript-library/gitsync | плагин gitsync `edtExport` → `1cedtcli` | oscript + gitsync + платформа 1С + EDT; см. `scripts/local/run-gitsync.ps1` |
+
+Ограничение движка `gitsync`: хранилища **расширений** не поддерживаются
+(gitsync 3.5.4: «Обновление основной конфигурации из хранилища расширения не
+поддерживается») — расширения выгружайте движком `tool1cd`.
+
+Отличия движка `gitsync`: git-историю формирует сам gitsync (файл AUTHORS,
+коммиты на русском), каждый проект — **отдельный** git-репозиторий
+`<worktree>/<project>` в src-layout (`<project>/src/` — корень EDT-проекта,
+служебные `VERSION`/`AUTHORS` рядом) из-за детекции `src` в gitsync
+(issue oscript-library/gitsync-plugins#53); резюм — по файлу `VERSION`.
+Для секций доступны `storage_user`/`storage_pwd` (gitsync ходит в хранилище
+конфигуратором; tool1cd-движок эти ключи игнорирует). Один worktree должен
+обслуживаться одним движком — не смешивайте.
+
 Механика `base_project`: обе import-команды (базовый проект + расширение
 с `--base-project-name`) выполняются одним EDT-скриптом в одной сессии —
 отдельными вызовами EDT 2026.1 базу «не видит» («Не найдено открытого
@@ -281,7 +315,26 @@ tool1cd приходят из публичных источников (`docker.i
 
 ## Локальный запуск без Docker (Windows)
 
-`scripts/local/run-local.ps1` — тот же конвейер нативными инструментами:
+Проверка зависимостей (что установлено и что поставить — с подсказками):
+
+```powershell
+scripts\local\check-deps.ps1            # оба движка; -Engine tool1cd|gitsync
+```
+
+| Зависимость | Зачем | Как поставить |
+|---|---|---|
+| Python 3.11+ | оркестратор `1c-convert` (нужен tomllib) | python.org |
+| git | коммиты версий | git-scm.com |
+| Платформа 1С 8.3 (ibcmd + 1cv8) | XML-выгрузка; gitsync читает хранилище конфигуратором (лицензия не нужна) | releases.1c.ru |
+| 1C:EDT (1cedtcli) | XML ↔ EDT | releases.1c.ru (offline-установщик) |
+| Axiom JDK Full 21/25 | Java для EDT | ставится вместе с EDT (`components\axiom-jdk-full-*`) |
+| ctool1cd.exe | движок `tool1cd`: чтение хранилища | автосборка run-local.ps1 из upstream (нужен MSYS2/mingw) или релиз beta2 |
+| MSYS2 + mingw | сборка ctool1cd с depot ver100 (расширения) | msys2.org (опционально) |
+| oscript + opm | движок `gitsync` | oscript.io |
+| gitsync + gitsync-plugins ≥ 2.0.1 (edtExport) + edtfind | движок `gitsync` | `opm install gitsync`; `gitsync plugins install gitsync-plugins@2.0.3`; `gitsync plugins enable edtExport`; edtfind ставит run-gitsync.ps1 (локально в `tools\oscript`) |
+| Docker | только fallback-шим для неответившего 1cedtcli | опционально |
+
+`run-local.ps1` — тот же конвейер нативными инструментами:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\local\run-local.ps1
@@ -303,6 +356,25 @@ powershell -ExecutionPolicy Bypass -File scripts\local\run-local.ps1
 - конфиг — `scripts\local\sync.local.toml` (пример рядом, Windows-пути);
 - предупреждение: EDT локальной машины может отличаться от EDT в образе —
   для одного монорепо держите один канал (docker ИЛИ local).
+
+### Альтернатива: выгрузка хранилища через gitsync (без Docker)
+
+`scripts/local/run-gitsync.ps1` — отдельный сценарий на официальном стеке
+oscript-library/gitsync + плагин `edtExport` (конфигуратор читает хранилище,
+`1cedtcli` конвертирует в EDT, ring не нужен):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\local\run-gitsync.ps1
+# fixtures\crs\cf -> output\local-gitsync (5 версий = 5 коммитов)
+```
+
+Скрипт сам: находит платформу/EDT/Java, ставит `edtfind` локально в
+`tools\oscript` (через `OSCRIPT_CONFIG=lib.additional` — OneScript 1.9.4
+игнорирует OSLIB, а заданный lib.additional отключает поиск в
+`<gitsync>\oscript_modules`, поэтому недостающие пакеты зеркалируются туда),
+включает плагин `edtExport`, делает `gitsync init` (с временным отключением
+edtExport — баг плагина 2.x) и `gitsync sync`. Тот же движок доступен из
+общего конфига: `[worktree] engine = "gitsync"` + `sync-all` (см. выше).
 
 ## Быстрый старт
 
@@ -391,7 +463,9 @@ Credentials ИБ/СУБД передаются через environment (`V8_IB_PW
 - Хранилище конфигураций читается `ctool1cd` напрямую из `1cv8ddb.1CD`
   (реверс-инжиниринг формата, GPL-3): покрывающая практика сообщества
   многолетняя, но это не официальный инструмент 1С. Официальный путь
-  (gitsync + 1cv8 DESIGNER + лицензия) сохранён в `legacy/`.
+  (gitsync + конфигуратор 1С читает хранилище) доступен как альтернативный
+  движок: `[worktree] engine = "gitsync"` (см. выше) или
+  `scripts/local/run-gitsync.ps1`; DESIGNER + Host Bridge — в `legacy/`.
 - `ibcmd` хранилище читать не умеет (проверено по `ibcmd help` 8.3.27),
   поэтому extractor построен на `ctool1cd`.
 - Инкрементальный import XML→EDT в существующий проект EDT CLI не

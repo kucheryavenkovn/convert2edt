@@ -3,7 +3,9 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
+from time import monotonic
 from uuid import uuid4
 
 from .detect import CF, EDT, FILE_IB, SERVER_IB, Source, detect_source
@@ -17,6 +19,37 @@ from .proc import info, run_tool
 SYNC_COMMITTER_NAME = "1c-convert storage-sync"
 SYNC_COMMITTER_EMAIL = "1c-convert@storage.local"
 STATE_FILE = ".storage-sync.json"
+STATS_FILE = ".storage-sync-stats.json"
+STATS_KEEP_RUNS = 100
+
+
+def load_stats(path: Path) -> dict:
+    if path.is_file():
+        try:
+            stats = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(stats, dict) and isinstance(stats.get("runs"), list):
+                return stats
+        except (OSError, ValueError):
+            pass
+    return {"runs": []}
+
+
+def append_stats(path: Path, run: dict) -> None:
+    """Дописать прогон в журнал статистики (храним последние STATS_KEEP_RUNS)."""
+    stats = load_stats(path)
+    stats["runs"] = (stats["runs"] + [run])[-STATS_KEEP_RUNS:]
+    path.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def new_stats_run(engine: str, project: str, storage: str) -> dict:
+    return {
+        "engine": engine,
+        "project": project,
+        "storage": str(storage),
+        "started": datetime.now().isoformat(timespec="seconds"),
+        "duration_sec": 0.0,
+        "versions": [],
+    }
 
 
 def load_authors(path: Path | None) -> dict[str, str]:
@@ -91,9 +124,10 @@ def ensure_git_repo(worktree: Path) -> None:
         content = gitignore.read_text(encoding="utf-8")
     else:
         content = ""
-    if STATE_FILE not in content.splitlines():
-        lines = [line for line in content.splitlines() if line.strip()]
-        lines.append(STATE_FILE)
+    lines = [line for line in content.splitlines() if line.strip()]
+    missing = [name for name in (STATE_FILE, STATS_FILE) if name not in lines]
+    if missing:
+        lines.extend(missing)
         gitignore.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -476,6 +510,8 @@ class Pipeline:
         base_project: str = "",
     ) -> None:
         def steps() -> None:
+            run = new_stats_run("tool1cd", project_name, storage)
+            run_start = monotonic()
             temp, tool, local_db, versions, users = self.storage_prepare(
                 storage, "storage-sync"
             )
@@ -502,10 +538,21 @@ class Pipeline:
                 info(f"base project: {base_project}")
             for v in todo:
                 info(f"--- version {v.number}: {v.comment or '(no comment)'}")
+                v_start = monotonic()
                 cf = temp.root / f"ver-{v.number}.cf"
                 tool.dump_config(local_db, v.number, cf)
+                t_dump = monotonic()
                 if extension:
                     xml = self.extension_to_xml(cf, extension, temp, None, v.number)
+                else:
+                    # cf -> temp IB -> XML (как в cf_to_edt, но с замером фаз)
+                    ib = temp.root / f"ib_{v.number}"
+                    xml = temp.root / f"xml_{v.number}"
+                    self.ibcmd.create_from_cf(temp.ibcmd_data, ib, cf)
+                    self.ibcmd.config_export(temp.ibcmd_data, self.file_ib(ib), xml)
+                    self.assert_xml_dir(xml)
+                t_xml = monotonic()
+                if extension:
                     self.edt_import_flow(
                         xml,
                         project_dir,
@@ -513,11 +560,32 @@ class Pipeline:
                         base_project_dir=base_dir,
                     )
                 else:
-                    self.cf_to_edt(cf, project_dir)
+                    self.edt_import_flow(xml, project_dir)
+                t_edt = monotonic()
                 author = resolve_author(v, users, authors, domain)
                 commit_version(worktree, project_name, v, author)
+                t_end = monotonic()
                 state["projects"][project_name] = v.number
                 write_state(state_file, state)
+                run["versions"].append(
+                    {
+                        "version": v.number,
+                        "dump_sec": round(t_dump - v_start, 2),
+                        "xml_sec": round(t_xml - t_dump, 2),
+                        "edt_sec": round(t_edt - t_xml, 2),
+                        "commit_sec": round(t_end - t_edt, 2),
+                        "total_sec": round(t_end - v_start, 2),
+                    }
+                )
+            run["duration_sec"] = round(monotonic() - run_start, 2)
+            append_stats(worktree / STATS_FILE, run)
+            if run["versions"]:
+                slowest = max(run["versions"], key=lambda s: s["total_sec"])
+                info(
+                    f"stats: {len(run['versions'])} versions in {run['duration_sec']}s "
+                    f"(slowest: v{slowest['version']} = {slowest['total_sec']}s) "
+                    f"-> {STATS_FILE}"
+                )
             info(f"sync done: {todo[-1].number if todo else last_done} -> {worktree}")
 
         self.run("storage-sync", steps)

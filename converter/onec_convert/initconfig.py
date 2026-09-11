@@ -13,6 +13,7 @@ CONFIG_TEMPLATE = """# sync.toml — сгенерировано 1c-convert init-
 
 [worktree]
 path = "{worktree}"
+engine = "{engine}"
 {authors_line}
 
 [configuration]
@@ -32,6 +33,7 @@ base_project = "{base_project}"
 
 DEFAULTS = {
     "worktree": "/work/output/storage-git",
+    "engine": "tool1cd",
     "authors_file": "",
     "domain": "storage.local",
     "config_storage": "/work/fixtures/crs/cf",
@@ -45,6 +47,9 @@ DEFAULTS = {
 
 def render_toml(data: dict) -> str:
     worktree = data.get("worktree") or DEFAULTS["worktree"]
+    engine = (data.get("engine") or DEFAULTS["engine"]).strip().lower()
+    if engine not in ("tool1cd", "gitsync"):
+        raise ValueError(f"engine должен быть tool1cd или gitsync, получено: {engine}")
     authors_file = data.get("authors_file") or ""
     domain = data.get("domain") or "storage.local"
     config_storage = data.get("config_storage") or DEFAULTS["config_storage"]
@@ -79,6 +84,7 @@ def render_toml(data: dict) -> str:
 
     return CONFIG_TEMPLATE.format(
         worktree=worktree,
+        engine=engine,
         authors_line=authors_line,
         config_storage=config_storage,
         config_project=config_project,
@@ -102,6 +108,9 @@ def wizard() -> dict:
 
     data = {
         "worktree": _ask("git-worktree (монорепо)", DEFAULTS["worktree"]),
+        "engine": _ask(
+            "движок выгрузки хранилищ (tool1cd|gitsync)", DEFAULTS["engine"]
+        ),
         "authors_file": _ask("файл мапинга авторов (пусто = нет)", ""),
         "domain": _ask("домен email для неизвестных авторов", DEFAULTS["domain"]),
         "config_storage": _ask(
@@ -209,6 +218,13 @@ def read_state(data: dict) -> dict:
         except (OSError, ValueError):
             projects = {}
     result["projects"] = projects
+    stats_file = worktree / ".storage-sync-stats.json"
+    if stats_file.is_file():
+        try:
+            runs = json.loads(stats_file.read_text(encoding="utf-8")).get("runs", [])
+            result["stats"] = runs[-20:]
+        except (OSError, ValueError):
+            result["stats"] = []
     result["dirs"] = sorted(
         item.name for item in worktree.iterdir() if item.is_dir() and item.name != ".git"
     )
@@ -248,7 +264,7 @@ PAGE = """<!doctype html>
  fieldset{margin:12px 0;border:1px solid #ccd;border-radius:8px;background:#fff}
  legend{font-weight:600;padding:0 6px}
  label{display:block;margin:6px 0 2px;font-size:.9rem;color:#333}
- input{width:100%;box-sizing:border-box;padding:6px;border:1px solid #bbc;border-radius:4px}
+  input,select{width:100%;box-sizing:border-box;padding:6px;border:1px solid #bbc;border-radius:4px}
  .ext{border-left:4px solid #7aa;padding:6px 10px;margin:8px 0;background:#eef}
  button{margin-top:10px;padding:8px 16px;border:0;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer}
  button.mini{background:#9333ea;padding:4px 10px}
@@ -266,6 +282,11 @@ PAGE = """<!doctype html>
 <form id="f">
 <fieldset><legend>Монорепозиторий</legend>
  <label>git-worktree <input name="worktree" value="/work/output/storage-git"></label>
+ <label>Движок выгрузки хранилищ
+  <select name="engine">
+   <option value="tool1cd" selected>tool1cd — ctool1cd+ibcmd+1cedtcli (без конфигуратора и лицензии)</option>
+   <option value="gitsync">gitsync — oscript-library/gitsync + edtExport (нужны конфигуратор, oscript, EDT; проект = отдельный репо в src-layout)</option>
+  </select></label>
  <label>Файл авторов <input name="authors_file" placeholder="/work/authors.txt"></label>
  <label>Домен email <input name="domain" value="storage.local"></label>
 </fieldset>
@@ -288,6 +309,7 @@ PAGE = """<!doctype html>
 <button type="button" class="green" onclick="runSync()">▶ Запустить синхронизацию</button>
 </form>
 <h2>Состояние (что уже выгружено из хранилищ)</h2><div id="state" class="state">— нажмите «Показать состояние» —</div>
+<h2>Статистика прогонов (A/B)</h2><div id="stats" class="state">—</div>
 <h2>Ход синхронизации</h2><div id="cur" class="cur">—</div>
 <pre id="out">— заполните форму и нажмите «Предпросмотр» —</pre>
 <pre id="log" style="display:none"></pre>
@@ -329,18 +351,45 @@ async function state(){
  renderState(await r.json());
 }
 function renderState(s){
- if(!s.exists){ $('#state').textContent='worktree не существует: '+s.worktree+' (будет создан при синхронизации)'; return; }
- let h='<div>Проекты (последняя синхронизированная версия хранилища):</div>';
- if(s.projects&&Object.keys(s.projects).length){
-  for(const [p,v] of Object.entries(s.projects)) h+='<span class="pill">'+p+': версия '+v+'</span>';
- } else h+='<span class="pill">пока ничего не синхронизировано</span>';
- if(s.dirs) h+='<div class="hint">каталоги: '+s.dirs.join(', ')+'</div>';
- if(s.commits&&s.commits.length){
-  h+='<table><tr><th>hash</th><th>дата</th><th>автор</th><th>комментарий</th></tr>';
-  for(const c of s.commits) h+='<tr><td>'+c.hash+'</td><td>'+c.date+'</td><td>'+c.author+'</td><td>'+c.message+'</td></tr>';
+ if(!s.exists){ $('#state').textContent='worktree не существует: '+s.worktree+' (будет создан при синхронизации)'; }
+ else{
+  let h='<div>Проекты (последняя синхронизированная версия хранилища):</div>';
+  if(s.projects&&Object.keys(s.projects).length){
+   for(const [p,v] of Object.entries(s.projects)) h+='<span class="pill">'+p+': версия '+v+'</span>';
+  } else h+='<span class="pill">пока ничего не синхронизировано</span>';
+  if(s.dirs) h+='<div class="hint">каталоги: '+s.dirs.join(', ')+'</div>';
+  if(s.commits&&s.commits.length){
+   h+='<table><tr><th>hash</th><th>дата</th><th>автор</th><th>комментарий</th></tr>';
+   for(const c of s.commits) h+='<tr><td>'+c.hash+'</td><td>'+c.date+'</td><td>'+c.author+'</td><td>'+c.message+'</td></tr>';
+   h+='</table>';
+  }
+  $('#state').innerHTML=h;
+ }
+ renderStats(s);
+}
+function renderStats(s){
+ const el=$('#stats');
+ if(!s.stats||!s.stats.length){ el.textContent='— статистика появится после первого прогона —'; return; }
+ let h='<table><tr><th>старт</th><th>движок</th><th>проект</th><th>версий</th><th>всего, с</th><th>ср. с/версию</th></tr>';
+ const runs=s.stats.slice().reverse();
+ for(const r of runs){
+  const n=r.versions?r.versions.length:0;
+  const avg=n?(r.duration_sec/n).toFixed(1):'—';
+  h+='<tr><td>'+r.started+'</td><td>'+r.engine+'</td><td>'+r.project+'</td><td>'+n+'</td><td>'+r.duration_sec+'</td><td>'+avg+'</td></tr>';
+ }
+ h+='</table>';
+ const last=s.stats[s.stats.length-1];
+ if(last&&last.versions&&last.versions.length){
+  const c=function(x){return x===undefined?'—':x;};
+  h+='<div class="hint">Последний прогон: '+last.engine+' / '+last.project+' — этапы по версиям, сек'
+   +' (для gitsync внутренние этапы недоступны, замеряется версия целиком)</div>';
+  h+='<table><tr><th>версия</th><th>хранилище→cf</th><th>cf→xml</th><th>xml→edt</th><th>commit</th><th>всего</th></tr>';
+  for(const v of last.versions){
+   h+='<tr><td>'+v.version+'</td><td>'+c(v.dump_sec)+'</td><td>'+c(v.xml_sec)+'</td><td>'+c(v.edt_sec)+'</td><td>'+c(v.commit_sec)+'</td><td>'+v.total_sec+'</td></tr>';
+  }
   h+='</table>';
  }
- $('#state').innerHTML=h;
+ el.innerHTML=h;
 }
 let logPos=0, timer=null;
 async function runSync(){

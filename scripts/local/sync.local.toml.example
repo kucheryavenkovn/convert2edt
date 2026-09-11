@@ -3,6 +3,9 @@
 
 [worktree]
 path = "D:/git/convert2edt/output/local-git"
+# движок выгрузки хранилищ: tool1cd (по умолчанию) или gitsync
+# (gitsync: нужны oscript+gitsync+EDT+конфигуратор; см. scripts\local\run-gitsync.ps1)
+# engine = "tool1cd"
 
 [configuration]
 storage = "D:/git/convert2edt/fixtures/crs/cf"

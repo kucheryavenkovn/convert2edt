@@ -7,6 +7,12 @@
 [worktree]
 # git-репозиторий, куда складываются все проекты (создаётся при отсутствии)
 path = "/work/output/storage-git"
+# движок выгрузки хранилищ: tool1cd (по умолчанию; ctool1cd+ibcmd+1cedtcli,
+# лицензия/конфигуратор не нужны) или gitsync (официальный путь: конфигуратор
+# читает хранилище, oscript-library/gitsync + плагин edtExport -> 1cedtcli;
+# требуются oscript/gitsync/EDT локально; каждый проект — отдельный
+# git-репозиторий <worktree>/<project> с src-layout)
+# engine = "tool1cd"
 # необязательно: файл мапинга авторов и домен для email (см. README)
 # authors_file = "/work/authors.txt"
 # domain = "company.local"
@@ -16,8 +22,14 @@ path = "/work/output/storage-git"
 storage = "/work/fixtures/crs/cf"
 # имя проекта = имя каталога в worktree И имя EDT-проекта (можно любое)
 project = "configuration"
+# пользователь/пароль хранилища (только engine = gitsync; tool1cd читает файл напрямую)
+# storage_user = "Администратор"
+# storage_pwd = ""
 
 [[extension]]
+# ВНИМАНИЕ: хранилища расширений поддерживает только движок tool1cd;
+# gitsync падает с "Обновление основной конфигурации из хранилища расширения
+# не поддерживается" (проверено на gitsync 3.5.4 + edtExport 2.0.1).
 # хранилище расширения (может быть много секций [[extension]])
 name = "Расширение1"
 storage = "/work/fixtures/crs/ext/Расширение1"

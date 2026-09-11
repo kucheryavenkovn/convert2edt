@@ -48,6 +48,15 @@ def commit_external(worktree: Path, paths: list[str], message: str) -> None:
     info(f"committed: {message}")
 
 
+ENGINES = ("tool1cd", "gitsync")
+
+
+def _gitsync():
+    from .gitsync import GitSync
+
+    return GitSync()
+
+
 def sync_all(cfg: Config, config_path: Path) -> None:
     data = _load(config_path)
     worktree_conf = data.get("worktree") or {}
@@ -55,11 +64,23 @@ def sync_all(cfg: Config, config_path: Path) -> None:
     if not str(worktree):
         raise SyncConfigError("[worktree] path is required in sync config")
 
+    # engine = tool1cd (по умолчанию): нативный конвейер ctool1cd+ibcmd+1cedtcli;
+    # engine = gitsync: хранилище -> git через oscript-library/gitsync (+edtExport),
+    # каждый проект — отдельный git-репозиторий <worktree>/<project> (src-layout)
+    engine = (worktree_conf.get("engine") or "tool1cd").strip().lower()
+    if engine not in ENGINES:
+        raise SyncConfigError(
+            f"[worktree] engine must be one of {ENGINES}, got: {engine!r}"
+        )
+    info(f"engine: {engine}")
+
     authors_file = worktree_conf.get("authors_file") or None
     domain = worktree_conf.get("domain") or "storage.local"
 
     pipeline = Pipeline(cfg)
-    ensure_git_repo(worktree)
+    external = data.get("external") or {}
+    if engine == "tool1cd" or external.get("enabled"):
+        ensure_git_repo(worktree)
 
     failures: list[str] = []
 
@@ -71,34 +92,42 @@ def sync_all(cfg: Config, config_path: Path) -> None:
             failures.append(f"{title}: {error}")
             info(f"FAILED {title}: {error}")
 
+    def sync_section(section: dict, default_project: str, extension: str = "") -> None:
+        project = section.get("project") or default_project
+        if engine == "gitsync":
+            _gitsync().sync_project(
+                section["storage"],
+                worktree / project,
+                project,
+                storage_user=section.get("storage_user") or "Администратор",
+                storage_pwd=section.get("storage_pwd") or "",
+                extension=extension,
+                domain=domain,
+            )
+        else:
+            pipeline.storage_sync(
+                section["storage"],
+                worktree,
+                project_name=project,
+                authors_file=Path(authors_file) if authors_file else None,
+                domain=domain,
+                extension=extension,
+                base_project=section.get("base_project") or "",
+            )
+
     conf = data.get("configuration") or {}
     if conf.get("storage"):
         step(
             f"configuration: {conf.get('project') or 'configuration'}",
-            lambda: pipeline.storage_sync(
-                conf["storage"],
-                worktree,
-                project_name=conf.get("project") or "configuration",
-                authors_file=Path(authors_file) if authors_file else None,
-                domain=domain,
-            ),
+            lambda: sync_section(conf, "configuration"),
         )
 
     for ext in data.get("extension") or []:
         step(
             f"extension: {ext.get('project') or 'extension'}",
-            lambda ext=ext: pipeline.storage_sync(
-                ext["storage"],
-                worktree,
-                project_name=ext.get("project") or "extension",
-                authors_file=Path(authors_file) if authors_file else None,
-                domain=domain,
-                extension=ext.get("name") or "",
-                base_project=ext.get("base_project") or "",
-            ),
+            lambda ext=ext: sync_section(ext, "extension", extension=ext.get("name") or ""),
         )
 
-    external = data.get("external") or {}
     if not external.get("enabled"):
         if external:
             info("external: обработка отключена (enabled != true)")
