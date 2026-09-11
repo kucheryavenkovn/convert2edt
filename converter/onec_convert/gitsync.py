@@ -17,6 +17,7 @@
     здесь каталог просто подхватывается, если существует.
 """
 
+import json
 import os
 import re
 import shutil
@@ -115,14 +116,51 @@ class GitSync:
             raise GitSyncError(f"gitsync {args[0] if args else ''} exited with code {code}")
         return markers, monotonic() - start
 
-    def _plugins(self, action: str, env: dict) -> None:
-        self._run(["plugins", action, EDT_EXPORT_PLUGIN], env)
+    def _plugins_catalog(self) -> Path:
+        if os.name == "nt":
+            base = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData/Local"))
+            return base / "gitsync" / "plugins"
+        return Path.home() / ".local" / "share" / "gitsync" / "plugins"
+
+    def _set_edt_export(self, enabled: bool) -> None:
+        """Включить/выключить плагин edtExport правкой plugins.json.
+
+        Команды `gitsync plugins enable/disable` в связке oscript 1.9.4 +
+        gitsync 3.8.0 падают с TypeInitializationException Newtonsoft.Json,
+        а сам файл плагины пишут тривиально — правим напрямую.
+        """
+        catalog = self._plugins_catalog()
+        path = catalog / "plugins.json"
+        data: dict = {}
+        if path.is_file():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except ValueError:
+                data = {}
+        data["edtExport"] = enabled
+        catalog.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
 
     def _ensure_git_repo(self, workdir: Path) -> None:
         # gitsync init может не создать .git; worktree внутри другого
         # репозитория тогда подхватывает чужой .gitignore — страхуемся
         if not (workdir / ".git").exists():
             run_tool(["git", "-C", str(workdir), "init", "-q"])
+
+    def _prepare_storage(self, storage: str, project_name: str) -> Path:
+        """Локальная записываемая копия хранилища.
+
+        Работа с хранилищем (локи, 1cv8dtmp) требует записи в его каталог,
+        а источник может быть смонтирован read-only — поэтому, как и в
+        tool1cd-движке, всегда работаем с копией в cache/tmp.
+        """
+        from .tool1cd import locate_storage_db, prepare_local_copy
+
+        db = locate_storage_db(str(storage))
+        local_db = prepare_local_copy(
+            db, self.cfg.temp_root / "gitsync-storage" / project_name
+        )
+        return local_db.parent
 
     def sync_project(
         self,
@@ -138,6 +176,8 @@ class GitSync:
         """Синхронизировать хранилище в git-репозиторий workdir (src-layout)."""
         run = new_stats_run("gitsync", project_name, storage)
         run_start = monotonic()
+        storage_path = self._prepare_storage(storage, project_name)
+        info(f"gitsync: работаю с копией хранилища: {storage_path}")
         src_dir = workdir / "src"
         src_dir.mkdir(parents=True, exist_ok=True)
         workspace = workspace or (self.cfg.temp_root / "gitsync-ws")
@@ -150,11 +190,11 @@ class GitSync:
             info(f"gitsync: инициализация workdir {workdir}")
             # edtExport мешает init (требует project-name, регистрируемый
             # только для sync) — отключаем на время init
-            self._plugins("disable", env)
+            self._set_edt_export(False)
             try:
-                self._run([*global_opts, "init", "-u", storage_user, str(storage), str(workdir)], env)
+                self._run([*global_opts, "init", "-u", storage_user, str(storage_path), str(workdir)], env)
             finally:
-                self._plugins("enable", env)
+                self._set_edt_export(True)
 
         self._ensure_git_repo(workdir)
 
@@ -163,7 +203,7 @@ class GitSync:
             args += ["-p", storage_pwd]
         if extension:
             args += ["-e", extension]
-        args += [str(storage), str(workdir)]
+        args += [str(storage_path), str(workdir)]
         info(f"gitsync: sync {storage} -> {workdir} (проект {project_name})")
         markers, _ = self._run_logged(args, env)
 

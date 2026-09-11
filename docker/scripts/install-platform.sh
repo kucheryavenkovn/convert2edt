@@ -6,12 +6,13 @@
 # Changes: setup-full (server64*) archive support is adopted from the previous
 # crs2edt project; ru-nls deb packages are installed; server-only components.
 #
-# Usage: install-platform.sh <source-dir> [setup-full-components]
+# Usage: install-platform.sh <source-dir> [setup-full-components] [client-dir]
 set -euo pipefail
 shopt -s nullglob
 
-source_dir="${1:?usage: install-platform.sh <source-dir> [components]}"
+source_dir="${1:?usage: install-platform.sh <source-dir> [components] [client-dir]}"
 components="${2:-server,ru}"
+client_dir="${3:-}"
 
 work=/tmp/platform-install
 rm -rf "$work"
@@ -20,6 +21,10 @@ trap 'rm -rf "$work"' EXIT
 
 latest_file() {
   find "$source_dir" -maxdepth 2 -type f -name "$1" | sort -V | tail -1
+}
+
+latest_file_in() {
+  find "$1" -maxdepth 2 -type f -name "$2" | sort -V | tail -1
 }
 
 setup_archive="$(latest_file 'server64*.zip')"
@@ -69,6 +74,44 @@ else
   apt-get install -y --no-install-recommends \
     $(printf ' ./%s' "${debs[@]}")
   rm -rf /var/lib/apt/lists/*
+
+  # Optional: platform CLIENT (1cv8, configurator) for the gitsync engine —
+  # drop client_*.deb64.zip (releases.1c.ru) into dist/ (build context
+  # `clientdistr`). thin-client debs are not installed (headless image).
+  client_archive=""
+  for candidate_dir in "$client_dir" "$source_dir"; do
+    [ -z "$candidate_dir" ] && continue
+    client_archive="$(latest_file_in "$candidate_dir" 'client_*.deb64.zip')"
+    [ -z "$client_archive" ] && client_archive="$(latest_file_in "$candidate_dir" 'client64_*.zip')"
+    [ -z "$client_archive" ] && client_archive="$(latest_file_in "$candidate_dir" 'client_*.tar.gz')"
+    [ -n "$client_archive" ] && break
+  done
+  if [ -n "$client_archive" ]; then
+    echo "Platform archive (client): $(basename "$client_archive")"
+    mkdir -p "$work/client"
+    case "$client_archive" in
+      *.tar.gz) tar -xzf "$client_archive" -C "$work/client" ;;
+      *.zip)    unzip -q "$client_archive" -d "$work/client" ;;
+    esac
+    client_debs=()
+    for f in "$work/client"/1c-enterprise*-client_*.deb \
+             "$work/client"/1c-enterprise*-client-nls_*.deb; do
+      case "$(basename "$f")" in *thin*) continue ;; esac
+      client_debs+=("$f")
+    done
+    if [ "${#client_debs[@]}" -eq 0 ]; then
+      echo "ERROR: no 1c-enterprise*-client_*.deb found in $(basename "$client_archive"):" >&2
+      ls -1 "$work/client" >&2 || true
+      exit 1
+    fi
+    apt-get update
+    apt-get install -y --no-install-recommends "${client_debs[@]}"
+    rm -rf /var/lib/apt/lists/*
+  else
+    echo "NOTE: no client_*.deb64.zip found — platform client (1cv8) NOT"
+    echo "      installed; the gitsync engine in Docker requires it"
+    echo "      (see dist/README.md)."
+  fi
 fi
 
 # /opt/1cv8/current is a stable path for wrappers and PATH.
@@ -87,3 +130,14 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 echo "Installed 1C platform at: $current_dir"
+
+# the client (1cv8) lands in the same versioned dir; check AFTER the
+# /opt/1cv8/current symlink is in place
+if [ -n "$client_archive" ]; then
+  if [ ! -x /opt/1cv8/current/1cv8 ]; then
+    echo "ERROR: 1cv8 (platform client) was not found in /opt/1cv8/current" >&2
+    echo "after installing $(basename "$client_archive")." >&2
+    exit 1
+  fi
+  echo "Platform client (1cv8) installed for the gitsync engine."
+fi

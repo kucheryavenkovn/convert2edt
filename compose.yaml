@@ -9,6 +9,7 @@ services:
       dockerfile: Dockerfile
       additional_contexts:
         distr: ${VENDOR_DIR:-./vendor}
+        clientdistr: ${CLIENT_DIST_DIR:-./dist}
       args:
         BASE_IMAGE: ${BASE_IMAGE:-debian:bookworm-slim}
         TOOL1CD_REF: ${TOOL1CD_REF:-625ac1a47b6ed63bba2848842daf1909813f84d4}
@@ -16,9 +17,15 @@ services:
         EDT_VERSION: ${EDT_VERSION:-unknown}
         EDT_PLATFORM_SUPPORT: ${EDT_PLATFORM_SUPPORT:-8.3.27}
         REVISION: ${REVISION:-r1}
+        GITSYNC_SUPPORT: ${GITSYNC_SUPPORT:-1}
+        OSCRIPT_VERSION: ${OSCRIPT_VERSION:-1.9.4}
     init: true
-    # порт веб-помощника конфига: docker compose run --rm converter config-server
-    # (публикуется только пока жив контейнер)
+    # MAC фиксирован: программная лицензия 1С привязывается к MAC-адресу
+    # (получение: docker compose run --rm -p 127.0.0.1:5900:5900 converter license-gui)
+    mac_address: ${V8_MAC_ADDRESS:-02:42:AC:11:00:99}
+    # веб-форма конфигурации: docker compose run --rm converter config-server
+    # (публикуется только на loopback; VNC-порт 5900 для license-gui
+    # публикуется явно: -p 127.0.0.1:5900:5900 — см. docker/scripts/license-gui.sh)
     ports:
       - "127.0.0.1:8080:8080"
     environment:
@@ -57,3 +64,8 @@ services:
       # 1C license files (*.lic) — required by the platform for some operations.
       # Copy your license files into ./licenses (directory is gitignored).
       - ./licenses:/var/1C/licenses
+      # программная лицензия 1С (получение: converter license-gui через VNC)
+      - v8home:/root/.1cv8
+
+volumes:
+  v8home: {}

@@ -1,6 +1,9 @@
 # Закрытые дистрибутивы 1С — никогда не коммитить
 vendor/*
 !vendor/README.md
+# Клиент платформы (gitsync-движок в Docker): client_*.deb64.zip
+dist/*
+!dist/README.md
 # Файлы лицензий 1С
 licenses/
 *.lic
