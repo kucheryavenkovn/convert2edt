@@ -502,7 +502,33 @@ async function poll(){
  if(cur.length) $('#cur').textContent=cur[cur.length-1];
  if(j.status!=='running'){ clearInterval(timer); timer=null; $('#cur').textContent='ГОТОВО: '+j.status; state(); showTab('stats'); }
 }
-syncBases(); syncEngineRows(); state();
+async function loadToml(){
+ const r=await fetch('/api/load');
+ const d=await r.json();
+ if(!d.exists){ if(d.error) $('#cur').textContent='sync.toml: '+d.error; return; }
+ const set=(n,v)=>{ const el=document.querySelector('[name='+n+']'); if(el&&v!==undefined&&v!==null) el.value=v; };
+ set('worktree',d.worktree); set('engine',d.engine); set('authors_file',d.authors_file); set('domain',d.domain);
+ set('gitsync_storage_backend',d.gitsync_storage_backend); set('gitsync_xml_backend',d.gitsync_xml_backend);
+ $('#cfgen').checked=d.config_enabled!==false;
+ set('config_storage',d.config_storage); set('config_project',d.config_project);
+ $('#exen').checked=!!d.external_enabled;
+ set('external_xml_dir',d.external_xml_dir); set('external_project',d.external_project);
+ set('external_base_project',d.external_base_project||d.config_project||'configuration');
+ document.getElementById('exts').innerHTML='';
+ (d.extensions||[]).forEach(x=>{
+  addExt();
+  const blocks=document.querySelectorAll('.ext'), b=blocks[blocks.length-1];
+  b.querySelector('[name=ext_enabled]').checked=x.enabled!==false;
+  b.querySelector('[name=ext_name]').value=x.name||'';
+  b.querySelector('[name=ext_storage]').value=x.storage||'';
+  b.querySelector('[name=ext_project]').value=x.project||'';
+  const bb=b.querySelector('[name=ext_base]');
+  bb.value=x.base_project||d.config_project||'configuration';
+  bb.dataset.touched=1;
+ });
+ syncBases(); syncEngineRows();
+}
+syncBases(); syncEngineRows(); state(); loadToml();
 </script></body></html>"""
 
 
@@ -529,9 +555,53 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return {}
 
+    def _load_form_data(self) -> dict:
+        """Прочитать существующий sync.toml в структуру данных веб-формы."""
+        import tomllib
+
+        if not self.out_path.is_file():
+            return {"exists": False}
+        try:
+            data = tomllib.loads(self.out_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            return {"exists": False, "error": str(error)}
+        wt = data.get("worktree") or {}
+        gs = data.get("gitsync") or {}
+        conf = data.get("configuration") or {}
+        ext = data.get("external") or {}
+        return {
+            "exists": True,
+            "worktree": wt.get("path") or "/work/output/storage-git",
+            "engine": wt.get("engine") or "tool1cd",
+            "authors_file": wt.get("authors_file") or "",
+            "domain": wt.get("domain") or "storage.local",
+            "gitsync_storage_backend": gs.get("storage_backend") or "configurator",
+            "gitsync_xml_backend": gs.get("xml_backend") or "configurator",
+            "config_enabled": conf.get("enabled", True),
+            "config_storage": conf.get("storage") or "/work/fixtures/crs/cf",
+            "config_project": conf.get("project") or "configuration",
+            "extensions": [
+                {
+                    "enabled": item.get("enabled", True),
+                    "name": item.get("name") or "",
+                    "storage": item.get("storage") or "",
+                    "project": item.get("project") or "",
+                    "base_project": item.get("base_project") or "",
+                }
+                for item in data.get("extension") or []
+            ],
+            "external_enabled": bool(ext.get("enabled")),
+            "external_xml_dir": ext.get("xml_dir") or "/work/fixtures/dp-xml",
+            "external_project": ext.get("project") or "external",
+            "external_base_project": ext.get("base_project") or "",
+        }
+
     def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
             self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            return
+        if self.path == "/api/load":
+            self._json(200, self._load_form_data())
             return
         if self.path.startswith("/api/sync/log"):
             after = 0
