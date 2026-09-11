@@ -32,6 +32,8 @@ storage_backend = "configurator"
 xml_backend = "configurator"
 
 [configuration]
+# false = пропустить шаг хранилища конфигурации (по умолчанию true)
+enabled = true
 # хранилище конфигурации: каталог с 1cv8ddb.1CD или путь к самому файлу
 storage = "/work/fixtures/crs/cf"
 # имя проекта = имя каталога в worktree И имя EDT-проекта (можно любое)
@@ -42,6 +44,8 @@ project = "configuration"
 
 [[extension]]
 # хранилище расширения (может быть много секций [[extension]]).
+# false = пропустить этот шаг (по умолчанию true)
+enabled = true
 # Движки: tool1cd - всегда; gitsync - при storage_backend = configurator
 # (штатно через -Extension; плагин increment автоматически отключается -
 # инкрементальный -update-дамп расширений платформой не поддерживается)

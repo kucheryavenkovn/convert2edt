@@ -17,6 +17,7 @@ engine = "{engine}"
 {authors_line}
 {gitsync_section}
 [configuration]
+enabled = {config_enabled}
 storage = "{config_storage}"
 project = "{config_project}"
 {extension_sections}
@@ -24,6 +25,7 @@ project = "{config_project}"
 {external_lines}"""
 
 EXTENSION_TEMPLATE = """[[extension]]
+enabled = {enabled}
 name = "{name}"
 storage = "{storage}"
 project = "{project}"
@@ -60,6 +62,7 @@ def render_toml(data: dict) -> str:
         raise ValueError("gitsync xml_backend должен быть configurator или ibcmd")
     authors_file = data.get("authors_file") or ""
     domain = data.get("domain") or "storage.local"
+    config_enabled = "true" if data.get("config_enabled", True) else "false"
     config_storage = data.get("config_storage") or DEFAULTS["config_storage"]
     config_project = data.get("config_project") or "configuration"
 
@@ -85,6 +88,7 @@ def render_toml(data: dict) -> str:
     for ext in data.get("extensions") or []:
         base = ext.get("base_project") or config_project
         extension_sections += EXTENSION_TEMPLATE.format(
+            enabled="true" if ext.get("enabled", True) else "false",
             name=ext.get("name") or "Расширение1",
             storage=ext.get("storage") or "/work/fixtures/crs/ext/Расширение1",
             project=ext.get("project") or "extension",
@@ -107,6 +111,7 @@ def render_toml(data: dict) -> str:
         engine=engine,
         authors_line=authors_line,
         gitsync_section=gitsync_section,
+        config_enabled=config_enabled,
         config_storage=config_storage,
         config_project=config_project,
         extension_sections=extension_sections,
@@ -134,6 +139,7 @@ def wizard() -> dict:
         ),
         "authors_file": _ask("файл мапинга авторов (пусто = нет)", ""),
         "domain": _ask("домен email для неизвестных авторов", DEFAULTS["domain"]),
+        "config_enabled": _ask("выгружать хранилище конфигурации? (1=да, 0=нет)", "1").strip() == "1",
         "config_storage": _ask(
             "хранилище конфигурации", DEFAULTS["config_storage"]
         ),
@@ -163,6 +169,7 @@ def wizard() -> dict:
         default_storage = f"/work/fixtures/crs/ext/{name}"
         data["extensions"].append(
             {
+                "enabled": _ask("выгружать это расширение? (1=да, 0=нет)", "1").strip() == "1",
                 "name": name,
                 "storage": _ask("хранилище расширения", default_storage),
                 "project": _ask("имя проекта расширения", f"extension-{name}"),
@@ -332,6 +339,7 @@ PAGE = """<!doctype html>
  <label>Домен email <input name="domain" value="storage.local"></label>
 </fieldset>
 <fieldset><legend>Хранилище конфигурации</legend>
+ <label><input type="checkbox" name="config_enabled" id="cfgen" style="width:auto" checked> выгружать хранилище конфигурации</label>
  <label>Путь к хранилищу <input name="config_storage" value="/work/fixtures/crs/cf"></label>
  <label>Имя проекта <input name="config_project" value="configuration" id="cp"></label>
 </fieldset>
@@ -357,15 +365,17 @@ PAGE = """<!doctype html>
 <script>
 const $=n=>document.querySelector(n);
 function formData(){
- const f=document.getElementById('f'), data=Object.fromEntries(new FormData(f));
+ const f=document.getElementById('f'), fd=new FormData(f), data=Object.fromEntries(fd);
+ data.config_enabled=!!fd.has('config_enabled');
  data.extensions=[...document.querySelectorAll('.ext')].map(e=>({
-  name:e.querySelector('[name=ext_name]').value,
-  storage:e.querySelector('[name=ext_storage]').value,
-  project:e.querySelector('[name=ext_project]').value,
-  base_project:e.querySelector('[name=ext_base]').value||$('#cp').value
- }));
- return data;
-}
+   enabled:e.querySelector('[name=ext_enabled]').checked,
+   name:e.querySelector('[name=ext_name]').value,
+   storage:e.querySelector('[name=ext_storage]').value,
+   project:e.querySelector('[name=ext_project]').value,
+   base_project:e.querySelector('[name=ext_base]').value||$('#cp').value
+  }));
+  return data;
+ }
 function syncBases(){ $('#ebp').value=$('#cp').value;
   document.querySelectorAll('.ext [name=ext_base]').forEach(i=>{ if(!i.dataset.touched) i.value=$('#cp').value; }); }
 function syncEngineRows(){
@@ -376,12 +386,13 @@ function syncEngineRows(){
 $('#cp').addEventListener('input',syncBases);
 document.querySelector('[name=engine]').addEventListener('change',syncEngineRows);
 $('#ebp').addEventListener('input',()=>{});
-function addExt(){
- const d=document.createElement('div');d.className='ext';
- d.innerHTML='<label>Имя <input name="ext_name"></label>'
-  +'<label>Хранилище <input name="ext_storage"></label>'
-  +'<label>Проект <input name="ext_project"></label>'
-  +'<label>Базовый проект (EDT) <input name="ext_base"></label>';
+ function addExt(){
+  const d=document.createElement('div');d.className='ext';
+  d.innerHTML='<label><input type="checkbox" name="ext_enabled" style="width:auto" checked> выгружать это расширение</label>'
+   +'<label>Имя <input name="ext_name"></label>'
+   +'<label>Хранилище <input name="ext_storage"></label>'
+   +'<label>Проект <input name="ext_project"></label>'
+   +'<label>Базовый проект (EDT) <input name="ext_base"></label>';
  document.getElementById('exts').appendChild(d);
  d.querySelector('[name=ext_base]').value=$('#cp').value;
  d.querySelector('[name=ext_base]').addEventListener('input',e=>e.target.dataset.touched=1);
