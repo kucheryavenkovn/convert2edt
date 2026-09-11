@@ -324,7 +324,7 @@ PAGE = """<!doctype html>
 <h1>1c-convert — конфигурация и запуск синхронизации</h1>
 <p class="hint">Пути — внутри контейнера. Базовый проект расширений/обработок подставляется из имени проекта конфигурации.</p>
 <div class="tabs">
- <button type="button" class="tabbtn active" data-tab="repo">Монорепозиторий</button>
+ <button type="button" class="tabbtn active" data-tab="repo">Репозиторий и движок</button>
  <button type="button" class="tabbtn" data-tab="cfg">Конфигурация</button>
  <button type="button" class="tabbtn" data-tab="exts">Расширения</button>
  <button type="button" class="tabbtn" data-tab="ext">Обработки</button>
